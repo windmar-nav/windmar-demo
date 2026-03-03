@@ -343,14 +343,7 @@ def _run_engine_log_seed():
 # Startup Weather Prefetch
 # =============================================================================
 
-# Default viewports for prefetch.
-# Waves use subset() (server-side) — can handle wide lon range.
-# Currents/SST/ice use open_dataset() — limited to moderate lon range.
-# GFS (wind, visibility) handles any bbox at 0.5° resolution.
-_DEFAULT_LAT_MIN, _DEFAULT_LAT_MAX = -60.0, 60.0
-_DEFAULT_LON_MIN, _DEFAULT_LON_MAX = -80.0, 140.0
-# Narrower bbox for fields using open_dataset() (slow S3 chunk fetches)
-_MODERATE_LON_MAX = 80.0
+# Advisory lock to prevent duplicate prefetch across gunicorn workers.
 
 # Advisory lock ID for single-worker prefetch (prevent 4 workers downloading simultaneously)
 _PREFETCH_LOCK_ID = 20260224
@@ -398,27 +391,24 @@ def _prefetch_all_weather():
 
     try:
         from api.weather.prefetch import do_generic_prefetch, get_layer_manager
-        from api.weather_fields import FIELD_NAMES
+        from api.weather_fields import FIELD_NAMES, get_field
 
         t0 = time.monotonic()
         logger.info(
-            "Weather prefetch started: %s on [%.0f,%.0f]x[%.0f,%.0f]",
+            "Weather prefetch started (DB-only): %s",
             ", ".join(FIELD_NAMES),
-            _DEFAULT_LAT_MIN, _DEFAULT_LAT_MAX, _DEFAULT_LON_MIN, _DEFAULT_LON_MAX,
         )
 
         def _prefetch_field(field_name: str):
             ft0 = time.monotonic()
             try:
                 mgr = get_layer_manager(field_name)
-                # Currents/SST/ice use open_dataset() — limit lon to avoid
-                # slow S3 chunk downloads.  Waves/wind/vis handle wider bbox.
-                lon_max = _MODERATE_LON_MAX if field_name in ("currents", "sst", "ice") else _DEFAULT_LON_MAX
+                cfg = get_field(field_name)
+                lat_min, lat_max, lon_min, lon_max = cfg.default_bbox
                 do_generic_prefetch(
                     mgr,
-                    _DEFAULT_LAT_MIN, _DEFAULT_LAT_MAX,
-                    _DEFAULT_LON_MIN, lon_max,
-                    _skip_clamp=True,
+                    lat_min, lat_max, lon_min, lon_max,
+                    db_only=True,
                 )
                 logger.info(
                     "Weather prefetch %s complete (%.0fs)",
@@ -427,12 +417,10 @@ def _prefetch_all_weather():
             except Exception as e:
                 logger.error("Weather prefetch %s failed: %s", field_name, e)
 
-        # Waves must complete before swell (both share the same CMEMS cache file).
-        # Run waves first, then the rest in parallel.
-        _prefetch_field("waves")
-        remaining = [f for f in FIELD_NAMES if f != "waves"]
-        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="wx-prefetch") as pool:
-            pool.map(_prefetch_field, remaining)
+        # Rebuild file caches from DB data only — no provider downloads.
+        # Provider downloads are triggered exclusively via manual /resync.
+        with ThreadPoolExecutor(max_workers=3, thread_name_prefix="wx-prefetch") as pool:
+            pool.map(_prefetch_field, FIELD_NAMES)
 
         # Clear tile cache so tiles re-render from fresh data
         tile_root = Path("/tmp/windmar_tiles")

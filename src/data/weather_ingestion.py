@@ -360,7 +360,7 @@ class WeatherIngestionService:
             if not result:
                 logger.warning("CMEMS ice forecast fetch returned empty")
                 return
-            self.ingest_ice_forecast_frames(result)
+            self.ingest_ice_forecast_frames(result, force=force)
         except Exception as e:
             logger.error(f"Ice forecast ingestion failed: {e}")
 
@@ -564,13 +564,15 @@ class WeatherIngestionService:
         finally:
             conn.close()
 
-    def ingest_ice_forecast_frames(self, frames: dict):
+    def ingest_ice_forecast_frames(self, frames: dict, *, force: bool = False):
         """Store multi-timestep ice forecast frames into PostgreSQL.
 
         Args:
             frames: Dict mapping forecast_hour (int) -> WeatherData.
                     Each WeatherData has ice_concentration (siconc).
                     Expected hours: 0, 24, 48, ..., 216 (10 daily steps).
+            force:  When True, accept the new run even if it has fewer hours
+                    than the existing run (used by manual resync).
         """
         if not frames:
             return
@@ -628,7 +630,7 @@ class WeatherIngestionService:
                     logger.error(f"Failed to ingest ice forecast f{fh:03d}: {e}")
                     conn.rollback()
 
-            if ingested_count >= old_hour_count:
+            if ingested_count >= old_hour_count or (force and ingested_count > 0):
                 cur.execute(
                     """UPDATE weather_forecast_runs SET status = 'superseded'
                        WHERE source = %s AND status = 'complete' AND id != %s""",

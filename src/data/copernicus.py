@@ -804,7 +804,7 @@ class CopernicusDataProvider:
             if cache_file.exists():
                 logger.info(f"Loading current forecast from cache: {cache_file}")
                 try:
-                    ds = xr.open_dataset(cache_file)
+                    ds = xr.open_dataset(cache_file, engine="h5netcdf")
                 except Exception as e:
                     logger.warning(f"Corrupted current forecast cache, deleting and re-downloading: {e}")
                     cache_file.unlink(missing_ok=True)
@@ -814,7 +814,9 @@ class CopernicusDataProvider:
 
             if ds is None:
                 logger.info(f"Downloading CMEMS current forecast {start_dt} -> {end_dt}")
-                ds = _retry_download(lambda: copernicusmarine.open_dataset(
+                # Use subset() for server-side download — much faster than
+                # open_dataset() which streams chunk-by-chunk from S3.
+                _retry_download(lambda: copernicusmarine.subset(
                     dataset_id=self.CMEMS_PHYSICS_DATASET,
                     variables=["uo", "vo"],
                     minimum_longitude=lon_min,
@@ -827,34 +829,20 @@ class CopernicusDataProvider:
                     maximum_depth=10,
                     username=self.cmems_username,
                     password=self.cmems_password,
+                    output_directory=str(cache_file.parent),
+                    output_filename=cache_file.name,
+                    overwrite=True,
                 ))
-                if ds is None:
-                    logger.error("CMEMS returned None for current forecast")
+                if not cache_file.exists():
+                    logger.error("CMEMS returned no file for current forecast")
                     return None
-                # Subsample to ~0.25° before loading to reduce memory
-                lat_count = ds.sizes.get('latitude', 0)
-                lon_count = ds.sizes.get('longitude', 0)
-                if lat_count > 500 or lon_count > 1000:
-                    sub_step = max(1, round(0.25 / 0.083))  # 3
-                    ds = ds.isel(
-                        latitude=slice(None, None, sub_step),
-                        longitude=slice(None, None, sub_step),
-                    )
-                    logger.info(
-                        "Current forecast subsampled to ~0.25°: %s×%s",
-                        ds.sizes.get('latitude', '?'), ds.sizes.get('longitude', '?'),
-                    )
-                logger.info("Loading current forecast data into memory...")
-                ds = ds.load()
-                ds.to_netcdf(cache_file)
-                ds.close()
                 logger.info(f"Current forecast cached: {cache_file}")
                 fsize = cache_file.stat().st_size
-                if fsize < 1_000_000:
+                if fsize < 5_000_000:
                     logger.warning(f"Current forecast cache suspiciously small ({fsize} bytes), deleting")
                     cache_file.unlink(missing_ok=True)
                     return None
-                ds = xr.open_dataset(cache_file)
+                ds = xr.open_dataset(cache_file, engine="h5netcdf")
 
             lats = ds["latitude"].values
             lons = ds["longitude"].values

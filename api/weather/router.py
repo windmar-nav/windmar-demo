@@ -553,7 +553,11 @@ async def api_get_weather_field(
         else:
             data, ingested_at = fetch(lat_min, lat_max, lon_min, lon_max)
 
-    if data is None:
+    # Only fall through to live provider for GFS-backed layers (fast).
+    # CMEMS layers (waves, swell, currents, sst, ice) must come from DB —
+    # live CMEMS fetches take minutes and corrupt concurrent prefetch downloads.
+    _CMEMS_FIELDS = {"waves", "swell", "currents", "sst", "ice"}
+    if data is None and field not in _CMEMS_FIELDS:
         data = _SINGLE_FRAME_FETCHER[field](params, time)
         if db_weather is not None:
             ingested_at = datetime.now(timezone.utc)
@@ -599,7 +603,13 @@ async def api_get_velocity_format(
         else:
             data = get_wind_field(lat_min, lat_max, lon_min, lon_max, resolution, time)
     else:
-        data = get_current_field(lat_min, lat_max, lon_min, lon_max, resolution)
+        # Currents: DB-first, no live CMEMS fallback
+        db_weather = _db_weather()
+        data = None
+        if db_weather is not None:
+            data, _ = db_weather.get_current_from_db(lat_min, lat_max, lon_min, lon_max)
+        if data is None:
+            raise HTTPException(status_code=503, detail="No currents data available. Try resyncing.")
 
     cfg = get_field(field)
     step = compute_step(data.lats, data.lons, cfg.subsample_target)
@@ -724,14 +734,22 @@ async def api_trigger_field_prefetch(
     lon_min: float = Query(-30.0),
     lon_max: float = Query(40.0),
 ):
-    """Trigger background download of forecast data for any field."""
+    """Trigger background rebuild of forecast cache for any field.
+
+    Rebuilds file cache from DB only.  Provider downloads (CMEMS/GFS) are
+    triggered exclusively by the ``/resync`` endpoint.
+    """
     if field not in WEATHER_FIELDS:
         raise HTTPException(status_code=400,
                             detail=f"Unknown field: {field}. Valid: {list(FIELD_NAMES)}")
 
     mgr = get_layer_manager(field)
+
+    def _db_only_prefetch(mgr, la1, la2, lo1, lo2, **kw):
+        do_generic_prefetch(mgr, la1, la2, lo1, lo2, db_only=True, **kw)
+
     return mgr.trigger_response(
-        background_tasks, do_generic_prefetch,
+        background_tasks, _db_only_prefetch,
         lat_min, lat_max, lon_min, lon_max,
     )
 

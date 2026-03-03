@@ -43,6 +43,14 @@ def format_single_frame(
     """
     grid = make_grid(data.lats, data.lons, cfg)
 
+    # Compute grid resolution from subsampled lats
+    if grid.ny > 1:
+        resolution = round(abs(float(grid.lats[1] - grid.lats[0])), 4)
+    elif grid.nx > 1:
+        resolution = round(abs(float(grid.lons[1] - grid.lons[0])), 4)
+    else:
+        resolution = 0.25
+
     response = {
         "parameter": cfg.parameters[0] if cfg.components == "scalar" else cfg.name,
         "field": field_name,
@@ -53,6 +61,7 @@ def format_single_frame(
             "lon_min": float(data.lons.min()),
             "lon_max": float(data.lons.max()),
         },
+        "resolution": resolution,
         "nx": grid.nx,
         "ny": grid.ny,
         "lats": grid.lats.tolist(),

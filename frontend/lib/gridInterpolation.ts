@@ -53,7 +53,8 @@ export function bilinearOcean(
   return top + latFrac * (bot - top);
 }
 
-/** Compute fractional grid indices for a given lat/lon within a regular grid */
+/** Compute fractional grid indices for a given lat/lon within a regular grid.
+ *  Handles both ascending (south-to-north) and descending (north-to-south) lats. */
 export function getGridIndices(
   lat: number,
   lon: number,
@@ -62,17 +63,21 @@ export function getGridIndices(
 ): { latIdx: number; lonIdx: number; latFrac: number; lonFrac: number } | null {
   const ny = lats.length;
   const nx = lons.length;
-  const latMin = lats[0];
-  const latMax = lats[ny - 1];
-  const lonMin = lons[0];
-  const lonMax = lons[nx - 1];
+  if (ny < 2 || nx < 2) return null;
+
+  const latStart = lats[0];
+  const latEnd = lats[ny - 1];
+  const latMin = Math.min(latStart, latEnd);
+  const latMax = Math.max(latStart, latEnd);
+  const lonMin = Math.min(lons[0], lons[nx - 1]);
+  const lonMax = Math.max(lons[0], lons[nx - 1]);
 
   if (lat < latMin || lat > latMax || lon < lonMin || lon > lonMax) return null;
 
-  const latFracIdx = ((lat - latMin) / (latMax - latMin)) * (ny - 1);
-  const lonFracIdx = ((lon - lonMin) / (lonMax - lonMin)) * (nx - 1);
-  const latIdx = Math.floor(latFracIdx);
-  const lonIdx = Math.floor(lonFracIdx);
+  const latFracIdx = ((lat - latStart) / (latEnd - latStart)) * (ny - 1);
+  const lonFracIdx = ((lon - lons[0]) / (lons[nx - 1] - lons[0])) * (nx - 1);
+  const latIdx = Math.floor(Math.max(0, Math.min(latFracIdx, ny - 2)));
+  const lonIdx = Math.floor(Math.max(0, Math.min(lonFracIdx, nx - 2)));
   const latFrac = latFracIdx - latIdx;
   const lonFrac = lonFracIdx - lonIdx;
 

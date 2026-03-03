@@ -75,11 +75,16 @@ def do_generic_prefetch(
     lon_min: float, lon_max: float,
     *,
     _skip_clamp: bool = False,
+    db_only: bool = False,
 ):
     """Generic prefetch that works for any CMEMS/GFS field.
 
     For wind, delegates to GFS-specific logic (GRIB file cache).
     For everything else, calls the provider's forecast method and builds frames.
+
+    When *db_only* is True, only rebuild file caches from DB data — never
+    download from providers.  Used by startup prefetch; live downloads are
+    triggered exclusively by the manual ``/resync`` endpoint.
     """
     field_name = mgr.name
     cfg = get_field(field_name)
@@ -106,6 +111,11 @@ def do_generic_prefetch(
             if cache_covers_bounds(rebuilt, lat_min, lat_max, lon_min, lon_max):
                 logger.info(f"{field_name} forecast rebuilt from DB, skipping provider download")
                 return
+
+    # In db_only mode, stop here — do not download from providers.
+    if db_only:
+        logger.info(f"{field_name} no DB data available, skipping (db_only mode)")
+        return
 
     # Clear stale cache
     stale_path = mgr.cache_path(cache_key)
