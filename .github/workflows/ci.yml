@@ -235,7 +235,9 @@ jobs:
           EOF
 
       - name: Start services
-        run: docker compose up -d
+        run: |
+          mkdir -p data/calibration data/copernicus_cache logs
+          docker compose up -d
 
       - name: Wait for API to be healthy
         run: |
