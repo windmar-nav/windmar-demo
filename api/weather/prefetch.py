@@ -6,9 +6,11 @@ building frame caches, and persisting to PostgreSQL.
 """
 
 import logging
+import threading
 import time as _time
 from datetime import datetime
 from pathlib import Path
+from typing import Optional, Tuple
 
 from api.weather_fields import get_field, WEATHER_FIELDS, FIELD_NAMES
 from api.weather.grid_processor import clamp_bbox
@@ -20,6 +22,72 @@ from api.weather.frame_builder import (
 from api.forecast_layer_manager import ForecastLayerManager, cache_covers_bounds
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Ocean area presets — bbox = (lat_min, lat_max, lon_min, lon_max)
+# ---------------------------------------------------------------------------
+
+OCEAN_AREA_PRESETS = {
+    "atlantic": {
+        "label": "Atlantic",
+        "bbox": (-40.0, 72.0, -100.0, 45.0),
+        "ice_bbox": (55.0, 80.0, -100.0, 45.0),
+    },
+    "indian": {
+        "label": "Indian Ocean",
+        "bbox": (-40.0, 30.0, 20.0, 120.0),
+        "ice_bbox": None,
+    },
+    "pacific": {
+        "label": "Pacific (coming soon)",
+        "bbox": (-50.0, 60.0, 100.0, -70.0),
+        "ice_bbox": (50.0, 75.0, 100.0, -70.0),
+        "disabled": True,
+    },
+}
+
+
+def get_ocean_bbox(area: str = "atlantic") -> Tuple[float, float, float, float]:
+    """Return the CMEMS bbox for the given ocean area preset."""
+    preset = OCEAN_AREA_PRESETS.get(area, OCEAN_AREA_PRESETS["atlantic"])
+    return preset["bbox"]
+
+
+def get_ice_bbox(area: str = "atlantic") -> Optional[Tuple[float, float, float, float]]:
+    """Return the ice bbox for the given ocean area, or None."""
+    preset = OCEAN_AREA_PRESETS.get(area, OCEAN_AREA_PRESETS["atlantic"])
+    return preset.get("ice_bbox")
+
+
+# ---------------------------------------------------------------------------
+# Global resync lock — prevents concurrent downloads
+# ---------------------------------------------------------------------------
+
+_resync_lock = threading.Lock()
+_resync_active: Optional[str] = None
+
+
+def acquire_resync(field: str) -> bool:
+    """Try to acquire the global resync lock. Returns False if another resync is running."""
+    global _resync_active
+    with _resync_lock:
+        if _resync_active is not None:
+            return False
+        _resync_active = field
+        return True
+
+
+def release_resync():
+    """Release the global resync lock."""
+    global _resync_active
+    with _resync_lock:
+        _resync_active = None
+
+
+def get_resync_status() -> Optional[str]:
+    """Return the currently running resync field name, or None."""
+    return _resync_active
 
 
 # ---------------------------------------------------------------------------
@@ -50,29 +118,36 @@ for _fn in FIELD_NAMES:
 # Lazy provider resolution
 # ---------------------------------------------------------------------------
 
+
 def _get_providers():
     from api.state import get_app_state
+
     return get_app_state().weather_providers
 
 
 def _db_weather():
     from api.state import get_app_state
-    return get_app_state().weather_providers.get('db_weather')
+
+    return get_app_state().weather_providers.get("db_weather")
 
 
 def _weather_ingestion():
     from api.state import get_app_state
-    return get_app_state().weather_providers.get('weather_ingestion')
+
+    return get_app_state().weather_providers.get("weather_ingestion")
 
 
 # ---------------------------------------------------------------------------
 # Generic prefetch
 # ---------------------------------------------------------------------------
 
+
 def do_generic_prefetch(
     mgr: ForecastLayerManager,
-    lat_min: float, lat_max: float,
-    lon_min: float, lon_max: float,
+    lat_min: float,
+    lat_max: float,
+    lon_min: float,
+    lon_max: float,
     *,
     _skip_clamp: bool = False,
     db_only: bool = False,
@@ -90,7 +165,9 @@ def do_generic_prefetch(
     cfg = get_field(field_name)
 
     if not _skip_clamp:
-        lat_min, lat_max, lon_min, lon_max = clamp_bbox(lat_min, lat_max, lon_min, lon_max)
+        lat_min, lat_max, lon_min, lon_max = clamp_bbox(
+            lat_min, lat_max, lon_min, lon_max
+        )
 
     cache_key = mgr.make_cache_key(lat_min, lat_max, lon_min, lon_max)
 
@@ -99,17 +176,23 @@ def do_generic_prefetch(
     min_frames = cfg.expected_frames
     if existing and len(existing.get("frames", {})) >= min_frames:
         if cache_covers_bounds(existing, lat_min, lat_max, lon_min, lon_max):
-            logger.info(f"{field_name} forecast file cache already complete, skipping download")
+            logger.info(
+                f"{field_name} forecast file cache already complete, skipping download"
+            )
             return
 
     # Try rebuild from DB first
     db_weather = _db_weather()
     if db_weather is not None:
-        rebuilt = build_frames_from_db(field_name, db_weather, lat_min, lat_max, lon_min, lon_max)
+        rebuilt = build_frames_from_db(
+            field_name, db_weather, lat_min, lat_max, lon_min, lon_max
+        )
         if rebuilt and len(rebuilt.get("frames", {})) >= min_frames:
             mgr.cache_put(cache_key, rebuilt)
             if cache_covers_bounds(rebuilt, lat_min, lat_max, lon_min, lon_max):
-                logger.info(f"{field_name} forecast rebuilt from DB, skipping provider download")
+                logger.info(
+                    f"{field_name} forecast rebuilt from DB, skipping provider download"
+                )
                 return
 
     # In db_only mode, stop here — do not download from providers.
@@ -132,9 +215,9 @@ def do_generic_prefetch(
     weather_ingestion = _weather_ingestion()
 
     if cfg.source.startswith("gfs"):
-        provider = providers['gfs']
+        provider = providers["gfs"]
     else:
-        provider = providers['copernicus']
+        provider = providers["copernicus"]
 
     logger.info(f"{field_name} forecast prefetch started")
     fetch_fn = getattr(provider, cfg.fetch_method)
@@ -142,7 +225,7 @@ def do_generic_prefetch(
 
     if not result:
         if field_name == "ice":
-            synthetic = providers['synthetic']
+            synthetic = providers["synthetic"]
             result = synthetic.generate_ice_forecast(lat_min, lat_max, lon_min, lon_max)
         if not result:
             logger.error(f"{field_name} forecast fetch returned empty")
@@ -165,7 +248,9 @@ def do_generic_prefetch(
         method_name = _INGEST_FRAMES_METHOD.get(field_name)
         if method_name:
             try:
-                logger.info(f"Ingesting {field_name} forecast frames into PostgreSQL...")
+                logger.info(
+                    f"Ingesting {field_name} forecast frames into PostgreSQL..."
+                )
                 getattr(weather_ingestion, method_name)(result)
             except Exception as db_e:
                 logger.error(f"{field_name} forecast DB ingestion failed: {db_e}")
@@ -175,9 +260,10 @@ def do_generic_prefetch(
 # Wind-specific prefetch (GFS GRIB files)
 # ---------------------------------------------------------------------------
 
+
 def _do_wind_prefetch(mgr, lat_min, lat_max, lon_min, lon_max):
     """Download all GFS forecast hours and build wind frames cache."""
-    gfs_provider = _get_providers()['gfs']
+    gfs_provider = _get_providers()["gfs"]
     run_date, run_hour = gfs_provider._get_latest_run()
     mgr.last_run = (run_date, run_hour)
     logger.info(f"GFS forecast prefetch started (run {run_date}/{run_hour}z)")
@@ -185,7 +271,13 @@ def _do_wind_prefetch(mgr, lat_min, lat_max, lon_min, lon_max):
     logger.info("GFS forecast prefetch completed, building frames cache...")
 
     result = build_wind_frames_from_grib(
-        gfs_provider, lat_min, lat_max, lon_min, lon_max, run_date, run_hour,
+        gfs_provider,
+        lat_min,
+        lat_max,
+        lon_min,
+        lon_max,
+        run_date,
+        run_hour,
     )
     cache_key = mgr.make_cache_key(lat_min, lat_max, lon_min, lon_max)
     mgr.cache_put(cache_key, result)
@@ -195,6 +287,7 @@ def _do_wind_prefetch(mgr, lat_min, lat_max, lon_min, lon_max):
 # ---------------------------------------------------------------------------
 # Stale cache cleanup
 # ---------------------------------------------------------------------------
+
 
 def cleanup_stale_caches():
     """Delete stale CMEMS/GFS cache files to reclaim disk space."""
