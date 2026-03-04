@@ -107,8 +107,8 @@ function drawWindBarb(
   const barbLen = 12;
   const halfBarbLen = 6;
   const barbSpacing = 4;
-  // Barbs angled ~60° from staff axis (matching WMO reference)
-  const barbAngle = 60 * Math.PI / 180;
+  // Barbs at 120° from staff axis (WMO standard: obtuse angle from shaft)
+  const barbAngle = 120 * Math.PI / 180;
   // Pennant height along staff
   const pennantH = 6;
 

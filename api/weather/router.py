@@ -608,6 +608,38 @@ async def _compat_vis_frames(
 # ============================================================================
 
 
+@router.get("/api/weather/readiness")
+async def api_weather_readiness():
+    """Per-field weather data readiness for startup screen.
+
+    Inspects file cache only — no DB queries, sub-millisecond response.
+    """
+    from api.main import is_prefetch_running
+
+    fields = {}
+    for name, cfg in WEATHER_FIELDS.items():
+        if name == "swell":  # shares wave cache
+            continue
+        mgr = get_layer_manager(name)
+        lat_min, lat_max, lon_min, lon_max = cfg.default_bbox
+        cache_key = mgr.make_cache_key(lat_min, lat_max, lon_min, lon_max)
+        envelope = mgr.cache_get(cache_key)
+        frame_count = len(envelope.get("frames", {})) if envelope else 0
+        fields[name] = {
+            "status": "ready" if frame_count >= cfg.expected_frames else "missing",
+            "frames": frame_count,
+            "expected": cfg.expected_frames,
+        }
+
+    all_ready = all(f["status"] == "ready" for f in fields.values())
+    return {
+        "fields": fields,
+        "all_ready": all_ready,
+        "prefetch_running": is_prefetch_running(),
+        "resync_active": get_resync_status(),
+    }
+
+
 @router.get("/api/weather/resync-status")
 async def api_weather_resync_status():
     """Return the currently running resync field, or null."""

@@ -311,6 +311,20 @@ export interface ForecastFrames {
   frames: Record<string, VelocityData[]>;
 }
 
+// Weather readiness types (startup screen)
+export interface WeatherFieldStatus {
+  status: 'ready' | 'missing';
+  frames: number;
+  expected: number;
+}
+
+export interface WeatherReadiness {
+  fields: Record<string, WeatherFieldStatus>;
+  all_ready: boolean;
+  prefetch_running: boolean;
+  resync_active: string | null;
+}
+
 // Weather health/sync types
 export interface WeatherSourceHealth {
   label: string;
@@ -1822,6 +1836,11 @@ export const apiClient = {
 
   async getSwellField(params: { lat_min?: number; lat_max?: number; lon_min?: number; lon_max?: number; resolution?: number } = {}): Promise<SwellFieldData> {
     const response = await api.get<SwellFieldData>('/api/weather/swell', { params });
+    return response.data;
+  },
+
+  async getWeatherReadiness(): Promise<WeatherReadiness> {
+    const response = await api.get<WeatherReadiness>('/api/weather/readiness');
     return response.data;
   },
 

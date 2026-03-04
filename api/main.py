@@ -373,6 +373,14 @@ _PREFETCH_LOCK_ID = 20260224
 _REFRESH_INTERVAL = 6 * 3600  # seconds
 _refresh_stop = threading.Event()
 
+# Track whether startup prefetch is currently running (for readiness endpoint)
+_prefetch_running = False
+
+
+def is_prefetch_running() -> bool:
+    """Return True while the startup/periodic weather prefetch is active."""
+    return _prefetch_running
+
 
 def _weather_refresh_loop():
     """Run weather prefetch on startup, then repeat every 6 hours."""
@@ -388,12 +396,16 @@ def _prefetch_all_weather():
     Uses a PostgreSQL advisory lock so only one gunicorn worker runs this.
     Fields are fetched in parallel (ThreadPoolExecutor) — total ~2-3 min.
     """
+    global _prefetch_running
     import time
     import psycopg2
+
+    _prefetch_running = True
 
     db_url = os.environ.get("DATABASE_URL", settings.database_url)
     if not db_url.startswith("postgresql"):
         logger.info("Skipping weather prefetch (non-PostgreSQL database)")
+        _prefetch_running = False
         return
 
     # Advisory lock: only one worker prefetches
@@ -405,9 +417,11 @@ def _prefetch_all_weather():
         if not cur.fetchone()[0]:
             logger.info("Another worker is running weather prefetch, skipping")
             conn.close()
+            _prefetch_running = False
             return
     except Exception as e:
         logger.warning("Could not acquire prefetch lock: %s", e)
+        _prefetch_running = False
         return
 
     try:
@@ -465,6 +479,7 @@ def _prefetch_all_weather():
     except Exception as e:
         logger.error("Weather prefetch failed: %s", e)
     finally:
+        _prefetch_running = False
         try:
             cur.execute(f"SELECT pg_advisory_unlock({_PREFETCH_LOCK_ID})")
             conn.close()

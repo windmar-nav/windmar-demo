@@ -12,6 +12,8 @@ import { debugLog } from '@/lib/debugLog';
 import DebugConsole from '@/components/DebugConsole';
 import { useToast } from '@/components/Toast';
 import { useWeatherDisplay } from '@/hooks/useWeatherDisplay';
+import { useWeatherReadiness } from '@/hooks/useWeatherReadiness';
+import StartupLoader from '@/components/StartupLoader';
 
 const MapComponent = dynamic(() => import('@/components/MapComponent'), { ssr: false });
 
@@ -34,6 +36,9 @@ export default function HomePage() {
 
   // Toast notifications
   const toast = useToast();
+
+  // Weather readiness (startup screen)
+  const readiness = useWeatherReadiness();
 
   // Ephemeral state (local to this page)
   const [isEditing, setIsEditing] = useState(true);
@@ -399,10 +404,26 @@ export default function HomePage() {
     return sum + R * c;
   }, 0);
 
+  const showStartupLoader = readiness.isChecking || (readiness.prefetchRunning && !readiness.allReady);
+
   return (
     <div className="min-h-screen bg-gradient-maritime">
       <Header onFitRoute={handleFitRoute} />
       <DebugConsole />
+      {showStartupLoader && (
+        <StartupLoader
+          fields={readiness.fields}
+          allReady={readiness.allReady}
+          prefetchRunning={readiness.prefetchRunning}
+          isChecking={readiness.isChecking}
+          onMissingFields={(count) =>
+            toast.warning(
+              'Weather data incomplete',
+              `${count} layer${count > 1 ? 's' : ''} need resyncing`
+            )
+          }
+        />
+      )}
 
       <main className="pt-16 h-screen">
         <div className="h-full">
