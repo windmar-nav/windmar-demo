@@ -1,8 +1,11 @@
 'use client';
 
+import { useState, useEffect, useCallback } from 'react';
 import Header from '@/components/Header';
 import { useVoyage } from '@/components/VoyageContext';
-import { Settings, Grid3X3, TrendingUp, Compass, Gauge, Zap, Globe } from 'lucide-react';
+import { useWeatherReadiness } from '@/hooks/useWeatherReadiness';
+import { apiClient, ADRSAreaInfo } from '@/lib/api';
+import { Settings, Grid3X3, TrendingUp, Compass, Gauge, Zap, Globe, CheckCircle2, Minus } from 'lucide-react';
 
 export default function SettingsPage() {
   const {
@@ -10,14 +13,20 @@ export default function SettingsPage() {
     variableResolution, setVariableResolution,
     paretoEnabled, setParetoEnabled,
     variableSpeed, setVariableSpeed,
-    oceanArea, setOceanArea,
+    selectedAreas, setSelectedAreas,
   } = useVoyage();
 
-  const oceanAreas = [
-    { id: 'atlantic', label: 'Atlantic', desc: 'Full Atlantic + Med + Caribbean + Nordic' },
-    { id: 'indian', label: 'Indian Ocean', desc: 'Indian Ocean basin (20\u00b0E - 120\u00b0E)' },
-    { id: 'pacific', label: 'Pacific', desc: 'Coming soon', disabled: true },
-  ];
+  const readiness = useWeatherReadiness();
+
+  const handleToggleArea = useCallback((areaId: string) => {
+    const next = selectedAreas.includes(areaId)
+      ? selectedAreas.filter(a => a !== areaId)
+      : [...selectedAreas, areaId];
+    if (next.length === 0) return; // keep at least one
+    setSelectedAreas(next);
+    // Persist to backend
+    apiClient.setSelectedAreas(next).catch(() => {});
+  }, [selectedAreas, setSelectedAreas]);
 
   return (
     <div className="min-h-screen bg-maritime-darker text-white">
@@ -96,48 +105,66 @@ export default function SettingsPage() {
             </div>
           </section>
 
-          {/* ── Ocean Area ── */}
+          {/* ── Ocean Area (ADRS Volume 6) ── */}
           <section className="bg-white/5 rounded-lg p-8">
             <div className="flex items-center space-x-2 mb-4">
               <Globe className="w-5 h-5 text-primary-400" />
-              <h2 className="text-xl font-semibold">Ocean Area</h2>
+              <h2 className="text-xl font-semibold">Sailing Areas</h2>
             </div>
 
-            <div className="space-y-5 mb-4">
-              <div>
-                <label className="block text-sm text-gray-300 mb-2">Coverage region</label>
-                <select
-                  value={oceanArea}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (confirm('This will require a weather data resync for the new area. Continue?')) {
-                      setOceanArea(val);
-                    }
-                  }}
-                  className="w-full bg-white/10 text-white border border-white/20 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ocean-500"
-                >
-                  {oceanAreas.map((a) => (
-                    <option key={a.id} value={a.id} disabled={a.disabled} className="bg-gray-800">
-                      {a.label}{a.disabled ? ' (coming soon)' : ''}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-gray-500 mt-1">
-                  {oceanAreas.find(a => a.id === oceanArea)?.desc}
-                </p>
-              </div>
+            <div className="space-y-2 mb-4">
+              <label className="block text-sm text-gray-300 mb-2">ADRS Volume 6 coverage areas</label>
+              {readiness.availableAreas.map((area: ADRSAreaInfo) => {
+                const isSelected = selectedAreas.includes(area.id);
+                const areaData = readiness.areas[area.id];
+                return (
+                  <label
+                    key={area.id}
+                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                      area.disabled
+                        ? 'border-white/5 opacity-50 cursor-not-allowed'
+                        : isSelected
+                        ? 'border-blue-500/40 bg-blue-500/10'
+                        : 'border-white/10 hover:border-white/20'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      disabled={area.disabled}
+                      onChange={() => !area.disabled && handleToggleArea(area.id)}
+                      className="accent-ocean-500 w-4 h-4"
+                    />
+                    <div className="flex-1">
+                      <div className="text-sm text-gray-300">
+                        {area.label}
+                        {area.disabled && <span className="text-gray-500 ml-2 text-xs">Coming soon</span>}
+                      </div>
+                      <div className="text-xs text-gray-500">{area.description}</div>
+                    </div>
+                    {areaData && !area.disabled && (
+                      <div className="flex items-center gap-1">
+                        {areaData.all_ready ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        ) : (
+                          <Minus className="w-4 h-4 text-amber-500" />
+                        )}
+                      </div>
+                    )}
+                  </label>
+                );
+              })}
             </div>
 
             <div className="text-sm text-gray-400 leading-relaxed space-y-2">
               <p>
-                The ocean area controls the geographic coverage for all CMEMS weather
-                fields (waves, currents, SST, ice). Wind and visibility use global GFS
-                data and are not affected by this setting.
+                Select one or more ADRS areas for CMEMS weather coverage (waves,
+                currents, SST, ice). Wind and visibility use global GFS data and are
+                not affected. Multiple areas can be selected for adjacent coverage.
               </p>
               <p>
-                After changing the ocean area, trigger a full resync from the weather
-                panel to download data for the new region. Estimated download time:
-                3-5 minutes for Atlantic coverage.
+                After adding a new area, use the startup area selector or the weather
+                panel to download data for the new region.
               </p>
             </div>
           </section>

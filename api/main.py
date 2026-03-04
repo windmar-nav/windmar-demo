@@ -427,19 +427,22 @@ def _prefetch_all_weather():
     try:
         from api.weather.prefetch import do_generic_prefetch, get_layer_manager
         from api.weather_fields import FIELD_NAMES, get_field
+        from api.weather.adrs_areas import GLOBAL_FIELDS, AREA_SPECIFIC_FIELDS, get_adrs_area
+        from api.weather.area_config import get_selected_areas
 
         t0 = time.monotonic()
+        selected_areas = get_selected_areas()
         logger.info(
-            "Weather prefetch started (DB-only): %s",
+            "Weather prefetch started (DB-only): fields=%s, areas=%s",
             ", ".join(FIELD_NAMES),
+            ", ".join(selected_areas),
         )
 
-        def _prefetch_field(field_name: str):
+        def _prefetch_item(field_name: str, bbox, label: str):
             ft0 = time.monotonic()
             try:
                 mgr = get_layer_manager(field_name)
-                cfg = get_field(field_name)
-                lat_min, lat_max, lon_min, lon_max = cfg.default_bbox
+                lat_min, lat_max, lon_min, lon_max = bbox
                 do_generic_prefetch(
                     mgr,
                     lat_min,
@@ -450,18 +453,43 @@ def _prefetch_all_weather():
                 )
                 logger.info(
                     "Weather prefetch %s complete (%.0fs)",
-                    field_name,
+                    label,
                     time.monotonic() - ft0,
                 )
             except Exception as e:
-                logger.error("Weather prefetch %s failed: %s", field_name, e)
+                logger.error("Weather prefetch %s failed: %s", label, e)
+
+        # Build work items: global fields once, area-specific per selected area
+        work_items = []
+
+        # Global fields (wind, visibility) — use their default bbox
+        for field_name in FIELD_NAMES:
+            if field_name in GLOBAL_FIELDS:
+                cfg = get_field(field_name)
+                work_items.append((field_name, cfg.default_bbox, f"{field_name}:global"))
+
+        # Area-specific fields — per selected ADRS area
+        for area_id in selected_areas:
+            try:
+                area = get_adrs_area(area_id)
+            except KeyError:
+                continue
+            for field_name in FIELD_NAMES:
+                if field_name not in AREA_SPECIFIC_FIELDS:
+                    continue
+                if field_name == "swell":
+                    continue  # shares wave cache
+                if field_name == "ice" and area.ice_bbox is None:
+                    continue
+                bbox = area.ice_bbox if field_name == "ice" else area.bbox
+                work_items.append((field_name, bbox, f"{field_name}:{area_id}"))
 
         # Rebuild file caches from DB data only — no provider downloads.
         # Provider downloads are triggered exclusively via manual /resync.
         with ThreadPoolExecutor(
             max_workers=3, thread_name_prefix="wx-prefetch"
         ) as pool:
-            pool.map(_prefetch_field, FIELD_NAMES)
+            pool.map(lambda item: _prefetch_item(*item), work_items)
 
         # Clear tile cache so tiles re-render from fresh data
         tile_root = Path("/tmp/windmar_tiles")

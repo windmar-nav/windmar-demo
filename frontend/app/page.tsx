@@ -404,7 +404,52 @@ export default function HomePage() {
     return sum + R * c;
   }, 0);
 
-  const showStartupLoader = readiness.isChecking || (readiness.prefetchRunning && !readiness.allReady);
+  const [areaSelectDismissed, setAreaSelectDismissed] = useState(false);
+  const showStartupLoader = !areaSelectDismissed;
+
+  const handleSelectAreas = useCallback(async (areas: string[]) => {
+    try {
+      await apiClient.setSelectedAreas(areas);
+    } catch (error) {
+      console.error('Failed to set selected areas:', error);
+    }
+  }, []);
+
+  const handleResyncArea = useCallback(async (areaId: string) => {
+    try {
+      await apiClient.resyncArea(areaId);
+      // Resync started in background — restart polling to track progress
+      readiness.restartPolling();
+    } catch (error: unknown) {
+      // 409 = resync already running, not a real error
+      if (error && typeof error === 'object' && 'response' in error) {
+        const axiosErr = error as { response?: { status?: number } };
+        if (axiosErr.response?.status === 409) {
+          readiness.restartPolling();
+          return;
+        }
+      }
+      console.error('Failed to resync area:', error);
+      toast.error('Resync failed', `Could not download data for area ${areaId}`);
+    }
+  }, [toast, readiness]);
+
+  const handleResyncAll = useCallback(async () => {
+    try {
+      await apiClient.resyncAll();
+      readiness.restartPolling();
+    } catch (error: unknown) {
+      if (error && typeof error === 'object' && 'response' in error) {
+        const axiosErr = error as { response?: { status?: number } };
+        if (axiosErr.response?.status === 409) {
+          readiness.restartPolling();
+          return;
+        }
+      }
+      console.error('Failed to resync all:', error);
+      toast.error('Download failed', 'Could not start weather data download');
+    }
+  }, [toast, readiness]);
 
   return (
     <div className="min-h-screen bg-gradient-maritime">
@@ -412,16 +457,25 @@ export default function HomePage() {
       <DebugConsole />
       {showStartupLoader && (
         <StartupLoader
-          fields={readiness.fields}
+          globalFields={readiness.globalFields}
+          areas={readiness.areas}
           allReady={readiness.allReady}
           prefetchRunning={readiness.prefetchRunning}
+          resyncActive={readiness.resyncActive}
+          resyncProgress={readiness.resyncProgress}
+          selectedAreas={readiness.selectedAreas}
+          availableAreas={readiness.availableAreas}
           isChecking={readiness.isChecking}
+          onSelectAreas={handleSelectAreas}
+          onResyncArea={handleResyncArea}
+          onResyncAll={handleResyncAll}
           onMissingFields={(count) =>
             toast.warning(
               'Weather data incomplete',
               `${count} layer${count > 1 ? 's' : ''} need resyncing`
             )
           }
+          onDismiss={() => setAreaSelectDismissed(true)}
         />
       )}
 

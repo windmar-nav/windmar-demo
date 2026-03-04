@@ -8,6 +8,7 @@ prefetch, grid_processor, ocean_mask).  This file only wires HTTP to logic.
 import asyncio
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -54,10 +55,20 @@ from api.weather.prefetch import (
     acquire_resync,
     release_resync,
     get_resync_status,
-    OCEAN_AREA_PRESETS,
-    get_ocean_bbox,
-    get_ice_bbox,
+    set_resync_progress,
+    get_resync_progress,
+    clear_resync_progress,
 )
+from api.forecast_layer_manager import cache_covers_bounds, find_covering_cache
+from api.weather.adrs_areas import (
+    ADRS_AREAS,
+    AREA_SPECIFIC_FIELDS,
+    GLOBAL_FIELDS,
+    get_adrs_area,
+    compute_union_bbox,
+    compute_union_ice_bbox,
+)
+from api.weather.area_config import get_selected_areas, set_selected_areas
 
 from src.data.copernicus import GFSDataProvider
 
@@ -610,33 +621,123 @@ async def _compat_vis_frames(
 
 @router.get("/api/weather/readiness")
 async def api_weather_readiness():
-    """Per-field weather data readiness for startup screen.
+    """Per-area weather data readiness for startup area selector.
 
     Inspects file cache only — no DB queries, sub-millisecond response.
+    Returns global fields (wind/visibility) once, then per-area status for
+    CMEMS fields (waves, currents, sst, ice).
     """
     from api.main import is_prefetch_running
 
-    fields = {}
-    for name, cfg in WEATHER_FIELDS.items():
-        if name == "swell":  # shares wave cache
-            continue
+    selected = get_selected_areas()
+
+    # Global fields — checked once against their default bbox
+    global_fields = {}
+    for name in ("wind", "visibility"):
+        cfg = get_field(name)
         mgr = get_layer_manager(name)
         lat_min, lat_max, lon_min, lon_max = cfg.default_bbox
         cache_key = mgr.make_cache_key(lat_min, lat_max, lon_min, lon_max)
         envelope = mgr.cache_get(cache_key)
         frame_count = len(envelope.get("frames", {})) if envelope else 0
-        fields[name] = {
+        global_fields[name] = {
             "status": "ready" if frame_count >= cfg.expected_frames else "missing",
             "frames": frame_count,
             "expected": cfg.expected_frames,
         }
 
-    all_ready = all(f["status"] == "ready" for f in fields.values())
+    # Per-area fields — check cache for each selected ADRS area
+    areas = {}
+    for area_id in selected:
+        try:
+            area = get_adrs_area(area_id)
+        except KeyError:
+            continue
+
+        area_fields = {}
+        for name in ("waves", "currents", "sst", "ice"):
+            cfg = get_field(name)
+
+            # Ice is not applicable for areas without ice_bbox
+            if name == "ice" and area.ice_bbox is None:
+                area_fields[name] = {
+                    "status": "not_applicable",
+                    "frames": 0,
+                    "expected": 0,
+                }
+                continue
+
+            bbox = area.ice_bbox if name == "ice" else area.bbox
+            lat_min, lat_max, lon_min, lon_max = bbox
+            mgr = get_layer_manager(name)
+            cache_key = mgr.make_cache_key(lat_min, lat_max, lon_min, lon_max)
+            envelope = mgr.cache_get(cache_key)
+
+            # Fallback: check if a covering cache (e.g. union bbox) exists
+            if envelope is None:
+                covering = find_covering_cache(
+                    mgr.cache_dir, mgr.name,
+                    lat_min, lat_max, lon_min, lon_max,
+                )
+                if covering is not None:
+                    try:
+                        import json as _json
+                        envelope = _json.loads(covering.read_text())
+                    except Exception:
+                        envelope = None
+
+            frame_count = len(envelope.get("frames", {})) if envelope else 0
+
+            # Validate that cached data actually covers the requested bbox
+            if envelope and frame_count >= cfg.expected_frames:
+                if not cache_covers_bounds(envelope, lat_min, lat_max, lon_min, lon_max, min_coverage=0.8):
+                    frame_count = 0  # data is from wrong area
+
+            area_fields[name] = {
+                "status": "ready" if frame_count >= cfg.expected_frames else "missing",
+                "frames": frame_count,
+                "expected": cfg.expected_frames,
+            }
+
+        area_all_ready = all(
+            f["status"] in ("ready", "not_applicable")
+            for f in area_fields.values()
+        )
+        areas[area_id] = {
+            "label": area.label,
+            "fields": area_fields,
+            "all_ready": area_all_ready,
+        }
+
+    global_ok = all(f["status"] == "ready" for f in global_fields.values())
+    areas_ok = all(a["all_ready"] for a in areas.values()) if areas else True
+    all_ready = global_ok and areas_ok
+
+    # Available areas list (for area selector UI)
+    available = [
+        {
+            "id": a.id,
+            "label": a.label,
+            "description": a.description,
+            "bbox": list(a.bbox),
+            "ice_bbox": list(a.ice_bbox) if a.ice_bbox else None,
+            "disabled": a.disabled,
+        }
+        for a in ADRS_AREAS.values()
+    ]
+
+    resync_active = get_resync_status()
+    progress = get_resync_progress() if resync_active else {}
+
     return {
-        "fields": fields,
+        "global_fields": global_fields,
+        "areas": areas,
         "all_ready": all_ready,
         "prefetch_running": is_prefetch_running(),
-        "resync_active": get_resync_status(),
+        "resync_active": resync_active,
+        "resync_progress": progress,
+        "selected_areas": selected,
+        "available_areas": available,
     }
 
 
@@ -649,7 +750,12 @@ async def api_weather_resync_status():
 
 @router.post("/api/weather/resync-all")
 async def api_weather_resync_all():
-    """Re-ingest all weather fields in parallel."""
+    """Re-ingest all weather fields using union bbox of selected ADRS areas.
+
+    Uses a single CMEMS download per field covering all selected areas
+    so one DB run holds the full extent.  This prevents the display
+    issue where only the last-ingested area's data is visible.
+    """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     weather_ingestion = _weather_ingestion()
@@ -661,85 +767,282 @@ async def api_weather_resync_all():
             status_code=409, detail=f"Resync already running: {get_resync_status()}"
         )
 
-    try:
-        from api.config import get_settings
+    import threading
 
-        area = get_settings().ocean_area
-        bbox = get_ocean_bbox(area)
-        ice_bbox = get_ice_bbox(area)
+    def _run_all():
+        try:
+            clear_resync_progress()
+            selected = get_selected_areas()
 
-        all_fields = ["wind", "waves", "currents", "sst", "visibility", "ice"]
-        results = {}
+            union_bbox = compute_union_bbox(selected)
+            union_ice = compute_union_ice_bbox(selected)
 
-        def _resync_field(field_name: str):
-            cfg = get_field(field_name)
-            ingest_fn = getattr(weather_ingestion, cfg.ingest_method)
-            cmems_layers = {"waves", "currents", "swell", "ice", "sst"}
+            if union_bbox is None:
+                logger.warning("Resync-all: no valid areas selected")
+                return
 
-            if field_name in cmems_layers:
-                if field_name == "ice" and ice_bbox:
-                    ingest_fn(True, *ice_bbox)
-                else:
-                    ingest_fn(True, *bbox)
-            else:
-                ingest_fn(True)
+            def _resync_field(field_name: str, bbox, progress_labels: list):
+                for lbl in progress_labels:
+                    set_resync_progress(lbl, "downloading")
+                try:
+                    cfg = get_field(field_name)
+                    ingest_fn = getattr(weather_ingestion, cfg.ingest_method)
 
-            weather_ingestion._supersede_old_runs(cfg.source)
-            weather_ingestion.cleanup_orphaned_grid_data(cfg.source)
+                    if field_name in AREA_SPECIFIC_FIELDS:
+                        ingest_fn(True, *bbox)
+                    else:
+                        ingest_fn(True)
 
-            mgr = get_layer_manager(field_name)
-            if mgr.cache_dir.exists():
-                for f in mgr.cache_dir.iterdir():
-                    f.unlink(missing_ok=True)
+                    # Clear cache files that overlap with this bbox
+                    mgr = get_layer_manager(field_name)
+                    lat_min, lat_max, lon_min, lon_max = bbox
+                    if mgr.cache_dir.exists():
+                        for f in mgr.cache_dir.iterdir():
+                            if f.suffix == ".json":
+                                f.unlink(missing_ok=True)
+                            elif f.name.endswith(".json.gz"):
+                                f.unlink(missing_ok=True)
 
-            return field_name
+                    # Rebuild file cache from DB
+                    db_w = _db_weather()
+                    if db_w is not None:
+                        cache_key = mgr.make_cache_key(
+                            lat_min, lat_max, lon_min, lon_max
+                        )
+                        rebuilt = build_frames_from_db(
+                            field_name, db_w, lat_min, lat_max, lon_min, lon_max
+                        )
+                        if rebuilt and len(rebuilt.get("frames", {})) > 0:
+                            mgr.cache_put(cache_key, rebuilt)
 
-        def _run_all():
+                    for lbl in progress_labels:
+                        set_resync_progress(lbl, "done")
+                    return field_name
+                except Exception:
+                    for lbl in progress_labels:
+                        set_resync_progress(lbl, "failed")
+                    raise
+
             with ThreadPoolExecutor(max_workers=4) as pool:
-                futures = {pool.submit(_resync_field, f): f for f in all_fields}
+                futures = {}
+
+                # Global fields (wind, visibility) — once
+                for field_name in GLOBAL_FIELDS:
+                    cfg = get_field(field_name)
+                    labels = [f"{field_name}:global"]
+                    fut = pool.submit(
+                        _resync_field, field_name, cfg.default_bbox, labels
+                    )
+                    futures[fut] = labels[0]
+
+                # Area-specific fields — single download with union bbox
+                for field_name in ("waves", "currents", "sst"):
+                    labels = [f"{field_name}:{a}" for a in selected]
+                    fut = pool.submit(
+                        _resync_field, field_name, union_bbox, labels
+                    )
+                    futures[fut] = labels[0]
+
+                # Ice — union ice bbox (skip if no areas have ice)
+                if union_ice is not None:
+                    ice_areas = [
+                        a for a in selected
+                        if ADRS_AREAS.get(a) and ADRS_AREAS[a].ice_bbox
+                    ]
+                    labels = [f"ice:{a}" for a in ice_areas]
+                    fut = pool.submit(
+                        _resync_field, "ice", union_ice, labels
+                    )
+                    futures[fut] = labels[0]
+
                 for future in as_completed(futures):
-                    fname = futures[future]
+                    label = futures[future]
                     try:
                         future.result()
-                        results[fname] = "ok"
-                        logger.info(f"Resync-all: {fname} complete")
+                        logger.info(f"Resync-all: {label} complete")
                     except Exception as e:
-                        results[fname] = f"error: {e}"
-                        logger.error(f"Resync-all: {fname} failed: {e}")
+                        logger.error(f"Resync-all: {label} failed: {e}")
 
-        await asyncio.to_thread(_run_all)
+            # Supersede old runs and clean up AFTER all fields are done
+            seen_sources = set()
+            for field_name in list(GLOBAL_FIELDS) + ["waves", "currents", "sst", "ice"]:
+                cfg = get_field(field_name)
+                if cfg.source not in seen_sources:
+                    seen_sources.add(cfg.source)
+                    weather_ingestion._supersede_old_runs(cfg.source)
+                    weather_ingestion.cleanup_orphaned_grid_data(cfg.source)
 
-        cleanup_stale_caches()
+            cleanup_stale_caches()
+            logger.info("Resync-all complete")
+        except Exception as e:
+            logger.error(f"Resync-all failed: {e}", exc_info=True)
+        finally:
+            release_resync()
 
-        logger.info(f"Resync-all complete: {results}")
-        return {"status": "complete", "results": results, "ocean_area": area}
+    threading.Thread(target=_run_all, daemon=True).start()
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Resync-all failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Resync-all failed: {e}")
-    finally:
-        release_resync()
+    return {"status": "started", "areas": get_selected_areas()}
 
 
 @router.get("/api/weather/ocean-areas")
 async def api_weather_ocean_areas():
-    """Return available ocean area presets."""
-    from api.config import get_settings
-
-    current = get_settings().ocean_area
+    """Return ADRS Volume 6 area definitions."""
+    selected = get_selected_areas()
     areas = []
-    for key, preset in OCEAN_AREA_PRESETS.items():
+    for area in ADRS_AREAS.values():
         areas.append(
             {
-                "id": key,
-                "label": preset["label"],
-                "bbox": preset["bbox"],
-                "disabled": preset.get("disabled", False),
+                "id": area.id,
+                "label": area.label,
+                "description": area.description,
+                "bbox": list(area.bbox),
+                "ice_bbox": list(area.ice_bbox) if area.ice_bbox else None,
+                "disabled": area.disabled,
             }
         )
-    return {"areas": areas, "current": current}
+    return {"areas": areas, "selected": selected}
+
+
+@router.get("/api/weather/selected-areas")
+async def api_get_selected_areas():
+    """Return the currently selected ADRS area IDs."""
+    return {"selected": get_selected_areas()}
+
+
+@router.post("/api/weather/selected-areas")
+async def api_set_selected_areas(areas: list[str]):
+    """Update the selected ADRS area IDs."""
+    try:
+        set_selected_areas(areas)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"selected": get_selected_areas()}
+
+
+@router.post("/api/weather/resync-area")
+async def api_weather_resync_area(area: str = Query(...)):
+    """Re-ingest CMEMS fields for a single ADRS area (background)."""
+    try:
+        adrs_area = get_adrs_area(area)
+    except KeyError:
+        raise HTTPException(status_code=400, detail=f"Unknown ADRS area: {area}")
+
+    weather_ingestion = _weather_ingestion()
+    if weather_ingestion is None:
+        raise HTTPException(status_code=503, detail="Weather ingestion not configured")
+
+    if not acquire_resync(f"area:{area}"):
+        raise HTTPException(
+            status_code=409, detail=f"Resync already running: {get_resync_status()}"
+        )
+
+    import threading
+
+    def _run_resync():
+        try:
+            clear_resync_progress()
+            seen_sources = set()
+            for field_name in ("waves", "currents", "sst", "ice"):
+                if field_name == "ice" and adrs_area.ice_bbox is None:
+                    continue
+
+                label = f"{field_name}:{area}"
+                bbox = adrs_area.ice_bbox if field_name == "ice" else adrs_area.bbox
+                cfg = get_field(field_name)
+                ingest_fn = getattr(weather_ingestion, cfg.ingest_method)
+
+                set_resync_progress(label, "downloading")
+                try:
+                    ingest_fn(True, *bbox)
+                    seen_sources.add(cfg.source)
+
+                    # Clear ALL caches for this field (per-area and union)
+                    mgr = get_layer_manager(field_name)
+                    if mgr.cache_dir.exists():
+                        for f in mgr.cache_dir.iterdir():
+                            if f.suffix == ".json" or f.name.endswith(".json.gz"):
+                                f.unlink(missing_ok=True)
+
+                    # Rebuild file cache from DB for this area bbox
+                    lat_min, lat_max, lon_min, lon_max = bbox
+                    db_w = _db_weather()
+                    if db_w is not None:
+                        cache_key = mgr.make_cache_key(
+                            lat_min, lat_max, lon_min, lon_max
+                        )
+                        rebuilt = build_frames_from_db(
+                            field_name, db_w, lat_min, lat_max, lon_min, lon_max
+                        )
+                        if rebuilt and len(rebuilt.get("frames", {})) > 0:
+                            mgr.cache_put(cache_key, rebuilt)
+
+                    set_resync_progress(label, "done")
+                    logger.info(f"Resync-area {area}: {field_name} complete")
+                except Exception as e:
+                    set_resync_progress(label, "failed")
+                    logger.error(f"Resync-area {area}: {field_name} failed: {e}")
+
+            # Supersede/cleanup after all fields done
+            for source in seen_sources:
+                weather_ingestion._supersede_old_runs(source)
+                weather_ingestion.cleanup_orphaned_grid_data(source)
+
+            cleanup_stale_caches()
+            logger.info(f"Resync-area {area}: all fields complete")
+        except Exception as e:
+            logger.error(f"Resync-area {area} failed: {e}", exc_info=True)
+        finally:
+            release_resync()
+
+    threading.Thread(target=_run_resync, daemon=True).start()
+
+    return {"status": "started", "area": area}
+
+
+@router.post("/api/weather/purge-all")
+async def api_weather_purge_all():
+    """Delete ALL weather data (DB + file caches) for a clean slate."""
+    if get_resync_status() is not None:
+        raise HTTPException(
+            status_code=409, detail=f"Resync running: {get_resync_status()}"
+        )
+
+    db_weather = _db_weather()
+    purged = {"db_runs": 0, "db_grids": 0, "cache_files": 0}
+
+    # Purge DB
+    if db_weather is not None:
+        try:
+            conn = db_weather._get_conn()
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM weather_grid_data")
+                purged["db_grids"] = cur.rowcount
+                cur.execute("DELETE FROM weather_forecast_runs")
+                purged["db_runs"] = cur.rowcount
+            conn.commit()
+            conn.close()
+            logger.info(f"Purged DB: {purged['db_runs']} runs, {purged['db_grids']} grids")
+        except Exception as e:
+            logger.error(f"DB purge failed: {e}")
+            raise HTTPException(status_code=500, detail=f"DB purge failed: {e}")
+
+    # Purge file caches
+    for cache_dir in [Path("/tmp/windmar_cache"), Path("/tmp/windmar_tiles")]:
+        if cache_dir.exists():
+            for item in cache_dir.rglob("*"):
+                if item.is_file():
+                    item.unlink(missing_ok=True)
+                    purged["cache_files"] += 1
+
+    copernicus_cache = Path("data/copernicus_cache")
+    if copernicus_cache.exists():
+        for item in copernicus_cache.rglob("*"):
+            if item.is_file():
+                item.unlink(missing_ok=True)
+                purged["cache_files"] += 1
+
+    logger.info(f"Purge-all complete: {purged}")
+    return {"status": "complete", "purged": purged}
 
 
 # ============================================================================
@@ -1342,8 +1645,14 @@ async def api_weather_layer_resync(
         weather_ingestion._supersede_old_runs(cfg.source)
         weather_ingestion.cleanup_orphaned_grid_data(cfg.source)
 
+        # Clear only the cache file for the requested bbox
         mgr = get_layer_manager(field)
-        if mgr.cache_dir.exists():
+        if has_bbox:
+            ck = mgr.make_cache_key(lat_min, lat_max, lon_min, lon_max)
+            cf = mgr.cache_path(ck)
+            if cf.exists():
+                cf.unlink(missing_ok=True)
+        elif mgr.cache_dir.exists():
             for f in mgr.cache_dir.iterdir():
                 f.unlink(missing_ok=True)
 
