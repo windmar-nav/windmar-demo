@@ -1508,6 +1508,71 @@ async def api_trigger_field_prefetch(
     )
 
 
+def _resolve_cache(
+    mgr,
+    cfg: FieldConfig,
+    field: str,
+    lat_min: float,
+    lat_max: float,
+    lon_min: float,
+    lon_max: float,
+) -> Optional[dict]:
+    """Cascading cache lookup: exact → default_bbox → selected areas → covering file.
+
+    Returns a parsed JSON dict from the first cache that matches, or None.
+    """
+    exact_key = mgr.make_cache_key(lat_min, lat_max, lon_min, lon_max)
+
+    # 1. Exact match with requested bbox
+    cached = mgr.cache_get(exact_key)
+    if cached is not None:
+        if cached.get("_schema_version") != CACHE_SCHEMA_VERSION:
+            logger.info(f"{field} cache stale (schema {cached.get('_schema_version')} != {CACHE_SCHEMA_VERSION})")
+            cached = None
+        else:
+            logger.info(f"{field} frames: exact cache hit for {exact_key}")
+            return cached
+
+    # 2. Field's default_bbox key (catches prefetched global fields)
+    db = cfg.default_bbox
+    default_key = mgr.make_cache_key(db[0], db[1], db[2], db[3])
+    if default_key != exact_key:
+        cached = mgr.cache_get(default_key)
+        if cached is not None and cached.get("_schema_version") == CACHE_SCHEMA_VERSION:
+            logger.info(f"{field} frames: default_bbox cache hit ({default_key})")
+            return cached
+
+    # 3. Selected ADRS area bbox keys (catches CMEMS fields)
+    selected_areas = get_selected_areas()
+    for area_id in selected_areas:
+        try:
+            area = get_adrs_area(area_id)
+        except KeyError:
+            continue
+        area_key = mgr.make_cache_key(area.bbox[0], area.bbox[1], area.bbox[2], area.bbox[3])
+        if area_key != exact_key and area_key != default_key:
+            cached = mgr.cache_get(area_key)
+            if cached is not None and cached.get("_schema_version") == CACHE_SCHEMA_VERSION:
+                logger.info(f"{field} frames: area {area_id} cache hit ({area_key})")
+                return cached
+
+    # 4. Filesystem scan for any covering cache file
+    covering_file = find_covering_cache(
+        mgr.cache_dir, mgr.name, lat_min, lat_max, lon_min, lon_max
+    )
+    if covering_file is not None and covering_file.exists():
+        try:
+            import json as _json
+            cached = _json.loads(covering_file.read_text())
+            if cached.get("_schema_version") == CACHE_SCHEMA_VERSION:
+                logger.info(f"{field} frames: covering cache hit ({covering_file.name})")
+                return cached
+        except Exception:
+            pass
+
+    return None
+
+
 @router.get("/api/weather/{field}/frames")
 async def api_get_field_frames(
     field: str,
@@ -1528,50 +1593,24 @@ async def api_get_field_frames(
 
     cfg = get_field(field)
     mgr = get_layer_manager(field)
-    cache_key = mgr.make_cache_key(lat_min, lat_max, lon_min, lon_max)
-    _is_demo_user = is_demo() and is_demo_user(request)
+    _is_demo = is_demo() and is_demo_user(request)
 
-    cached = mgr.cache_get(cache_key)
-    if cached is not None and cached.get("_schema_version") != CACHE_SCHEMA_VERSION:
-        logger.info(
-            f"{field} cache stale (schema {cached.get('_schema_version')} != {CACHE_SCHEMA_VERSION}), rebuilding"
-        )
-        cached = None
+    # --- Cascading cache lookup (exact → default_bbox → areas → covering) ---
+    cached = _resolve_cache(mgr, cfg, field, lat_min, lat_max, lon_min, lon_max)
     if cached is not None:
-        if _is_demo_user:
+        if _is_demo:
             return limit_demo_frames(cached)
-        raw = mgr.serve_frames_file(
-            cache_key,
-            lat_min,
-            lat_max,
-            lon_min,
-            lon_max,
-            use_covering=True,
-        )
+        # Full user: try raw gzip for the exact key first
+        cache_key = mgr.make_cache_key(lat_min, lat_max, lon_min, lon_max)
+        raw = mgr.serve_frames_file(cache_key, lat_min, lat_max, lon_min, lon_max, use_covering=True)
         if raw is not None:
             return raw
         return cached
 
-    # Demo users skip the raw file response path (covering cache may be
-    # gzip-compressed and 100s of MB for global fields).  They fall through
-    # to the DB rebuild which produces viewport-sized data.
-    if not _is_demo_user:
-        covering_raw = mgr.serve_frames_file(
-            cache_key,
-            lat_min,
-            lat_max,
-            lon_min,
-            lon_max,
-            use_covering=True,
-        )
-        if covering_raw is not None:
-            logger.info(
-                f"{field} frames: serving covering cache for [{lat_min:.0f},{lat_max:.0f}]x[{lon_min:.0f},{lon_max:.0f}]"
-            )
-            return covering_raw
-
+    # --- DB rebuild fallback ---
     db_weather = _db_weather()
     if db_weather is not None:
+        cache_key = mgr.make_cache_key(lat_min, lat_max, lon_min, lon_max)
         cached = await asyncio.to_thread(
             build_frames_from_db,
             field,
@@ -1583,7 +1622,7 @@ async def api_get_field_frames(
         )
         if cached:
             mgr.cache_put(cache_key, cached)
-            if _is_demo_user:
+            if _is_demo:
                 return limit_demo_frames(cached)
             return cached
 
