@@ -77,6 +77,13 @@ class TestLimitDemoFrames:
         filtered = limit_demo_frames(result)
         assert set(filtered["frames"].keys()) == {"72", "96"}
 
+    def test_non_numeric_keys_passthrough(self):
+        """Non-numeric frame keys don't crash — return unchanged."""
+        result = {"frames": {"latest": {}, "forecast": {}}, "cached_hours": 2}
+        filtered = limit_demo_frames(result)
+        assert set(filtered["frames"].keys()) == {"latest", "forecast"}
+        assert filtered["cached_hours"] == 2
+
 
 # ============================================================================
 # _parse_hashes tests

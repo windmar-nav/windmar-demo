@@ -1550,24 +1550,23 @@ async def api_get_field_frames(
             return raw
         return cached
 
-    covering_raw = mgr.serve_frames_file(
-        cache_key,
-        lat_min,
-        lat_max,
-        lon_min,
-        lon_max,
-        use_covering=True,
-    )
-    if covering_raw is not None:
-        logger.info(
-            f"{field} frames: serving covering cache for [{lat_min:.0f},{lat_max:.0f}]x[{lon_min:.0f},{lon_max:.0f}]"
+    # Demo users skip the raw file response path (covering cache may be
+    # gzip-compressed and 100s of MB for global fields).  They fall through
+    # to the DB rebuild which produces viewport-sized data.
+    if not _is_demo_user:
+        covering_raw = mgr.serve_frames_file(
+            cache_key,
+            lat_min,
+            lat_max,
+            lon_min,
+            lon_max,
+            use_covering=True,
         )
-        if _is_demo_user:
-            import json as _json
-
-            covering_data = _json.loads(covering_raw.body)
-            return limit_demo_frames(covering_data)
-        return covering_raw
+        if covering_raw is not None:
+            logger.info(
+                f"{field} frames: serving covering cache for [{lat_min:.0f},{lat_max:.0f}]x[{lon_min:.0f},{lon_max:.0f}]"
+            )
+            return covering_raw
 
     db_weather = _db_weather()
     if db_weather is not None:

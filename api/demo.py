@@ -148,7 +148,10 @@ def limit_demo_frames(result: dict) -> dict:
         return result
 
     frames = result["frames"]
-    kept = {k: v for k, v in frames.items() if int(k) <= DEMO_MAX_FORECAST_HOUR}
+    try:
+        kept = {k: v for k, v in frames.items() if int(k) <= DEMO_MAX_FORECAST_HOUR}
+    except (ValueError, TypeError):
+        return result  # non-numeric keys → pass through unchanged
     if not kept:
         return result  # safety: don't strip all frames
     result["frames"] = kept
