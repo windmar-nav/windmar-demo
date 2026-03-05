@@ -452,39 +452,10 @@ async def verify_demo_key(request: Request):
             "key_hint": key_hint,
         }
 
-    # Include debug info: how many hashes are configured
-    demo_hash_count = (
-        len([h for h in settings.demo_api_key_hashes.split(",") if h.strip()])
-        if settings.demo_api_key_hashes
-        else 0
-    )
-    full_hash_count = (
-        len([h for h in settings.full_api_key_hashes.split(",") if h.strip()])
-        if settings.full_api_key_hashes
-        else 0
-    )
-    has_legacy = bool(settings.demo_api_key_hash)
-
     return JSONResponse(
         status_code=401,
         content={
             "authenticated": False,
             "detail": "Invalid licence key",
-            "key_hint": key_hint,
-            "debug": {
-                "demo_hashes_configured": demo_hash_count,
-                "full_hashes_configured": full_hash_count,
-                "legacy_hash_configured": has_legacy,
-                "first_hash_prefix": (
-                    settings.demo_api_key_hashes.split(",")[0][:10]
-                    if settings.demo_api_key_hashes
-                    else None
-                ),
-                "raw_env_len": (
-                    len(settings.demo_api_key_hashes)
-                    if settings.demo_api_key_hashes
-                    else 0
-                ),
-            },
         },
     )
