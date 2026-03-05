@@ -59,6 +59,8 @@ jobs:
           cat > deploy.env << 'DOTENV'
           DEMO_DB_PASSWORD=${{ secrets.DEMO_DB_PASSWORD }}
           API_SECRET_KEY=${{ secrets.DEMO_API_SECRET }}
+          CMEMS_USERNAME=${{ secrets.CMEMS_USERNAME }}
+          CMEMS_PASSWORD=${{ secrets.CMEMS_PASSWORD }}
           DOTENV
           sed -i 's/^[[:space:]]*//' deploy.env
 
