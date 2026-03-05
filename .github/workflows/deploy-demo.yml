@@ -54,13 +54,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Create .env for deployment
+        run: |
+          cat > deploy.env << 'DOTENV'
+          DEMO_DB_PASSWORD=${{ secrets.DEMO_DB_PASSWORD }}
+          API_SECRET_KEY=${{ secrets.DEMO_API_SECRET }}
+          DEMO_API_KEY_HASHES=${{ secrets.DEMO_API_KEY_HASHES }}
+          FULL_API_KEY_HASHES=${{ secrets.FULL_API_KEY_HASHES }}
+          DOTENV
+          sed -i 's/^[[:space:]]*//' deploy.env
+          echo "deploy.env lines: $(wc -l < deploy.env), bytes: $(wc -c < deploy.env)"
+
       - name: Copy files to VPS
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.DEMO_VPS_HOST }}
           username: ${{ secrets.DEMO_VPS_USER }}
           key: ${{ secrets.DEMO_VPS_SSH_KEY }}
-          source: "docker-compose.demo.yml,Caddyfile,docker/init-db.sql,data/demo-engine-log-seed.sql"
+          source: "docker-compose.demo.yml,Caddyfile,docker/init-db.sql,data/demo-engine-log-seed.sql,deploy.env"
           target: /opt/windmar-demo
 
       - name: Deploy on VPS
@@ -75,14 +86,8 @@ jobs:
           envs: GH_TOKEN,GH_ACTOR
           script: |
             cd /opt/windmar-demo
-            cat > .env << 'ENVEOF'
-            DEMO_DB_PASSWORD=${{ secrets.DEMO_DB_PASSWORD }}
-            API_SECRET_KEY=${{ secrets.DEMO_API_SECRET }}
-            DEMO_API_KEY_HASHES=${{ secrets.DEMO_API_KEY_HASHES }}
-            FULL_API_KEY_HASHES=${{ secrets.FULL_API_KEY_HASHES }}
-            ENVEOF
-            # Strip leading whitespace from heredoc (YAML indentation artifact)
-            sed -i 's/^[[:space:]]*//' .env
+            mv deploy.env .env
+            echo ".env bytes on VPS: $(wc -c < .env)"
 
             # Authenticate to GHCR on VPS for pulling private packages
             echo "${GH_TOKEN}" | docker login ghcr.io -u "${GH_ACTOR}" --password-stdin
