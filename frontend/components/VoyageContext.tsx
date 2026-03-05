@@ -89,9 +89,9 @@ interface VoyageContextValue {
   displayedAnalysisId: string | null;
   setDisplayedAnalysisId: (v: string | null) => void;
 
-  // Ocean area preset
-  oceanArea: string;
-  setOceanArea: (v: string) => void;
+  // ADRS selected areas (multi-select)
+  selectedAreas: string[];
+  setSelectedAreas: (v: string[]) => void;
 
   // Sync speed from backend vessel specs
   refreshSpecs: () => Promise<void>;
@@ -115,7 +115,7 @@ export function VoyageProvider({ children }: { children: ReactNode }) {
   const [paretoEnabled, setParetoEnabled] = useSessionState('wm:pareto', false);
   const [variableSpeed, setVariableSpeed] = useSessionState('wm:varSpeed', false);
   const [displayedAnalysisId, setDisplayedAnalysisId] = useSessionState<string | null>('wm:analysisId', null);
-  const [oceanArea, setOceanArea] = useSessionState('wm:oceanArea', 'atlantic');
+  const [selectedAreas, setSelectedAreas] = useSessionState<string[]>('wm:selectedAreas', ['adrs_1_2']);
 
   // Route state (session-persisted)
   const [waypoints, setWaypoints] = useSessionState<Position[]>('wm:waypoints', []);
@@ -181,7 +181,7 @@ export function VoyageProvider({ children }: { children: ReactNode }) {
         paretoEnabled, setParetoEnabled,
         variableSpeed, setVariableSpeed,
         displayedAnalysisId, setDisplayedAnalysisId,
-        oceanArea, setOceanArea,
+        selectedAreas, setSelectedAreas,
         refreshSpecs,
       }}
     >

@@ -25,69 +25,83 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Ocean area presets — bbox = (lat_min, lat_max, lon_min, lon_max)
+# Global resync lock — Redis-based (shared across all worker processes)
 # ---------------------------------------------------------------------------
 
-OCEAN_AREA_PRESETS = {
-    "atlantic": {
-        "label": "Atlantic",
-        "bbox": (-40.0, 72.0, -100.0, 45.0),
-        "ice_bbox": (55.0, 80.0, -100.0, 45.0),
-    },
-    "indian": {
-        "label": "Indian Ocean",
-        "bbox": (-40.0, 30.0, 20.0, 120.0),
-        "ice_bbox": None,
-    },
-    "pacific": {
-        "label": "Pacific (coming soon)",
-        "bbox": (-50.0, 60.0, 100.0, -70.0),
-        "ice_bbox": (50.0, 75.0, 100.0, -70.0),
-        "disabled": True,
-    },
-}
+_RESYNC_KEY = "windmar:resync_active"
+_RESYNC_PROGRESS_KEY = "windmar:resync_progress"
+_RESYNC_TTL = 1800  # 30 min safety TTL (auto-expire if process crashes)
 
 
-def get_ocean_bbox(area: str = "atlantic") -> Tuple[float, float, float, float]:
-    """Return the CMEMS bbox for the given ocean area preset."""
-    preset = OCEAN_AREA_PRESETS.get(area, OCEAN_AREA_PRESETS["atlantic"])
-    return preset["bbox"]
+def _get_redis():
+    """Lazy Redis client for resync lock."""
+    import redis as _redis
+    from api.config import Settings
 
-
-def get_ice_bbox(area: str = "atlantic") -> Optional[Tuple[float, float, float, float]]:
-    """Return the ice bbox for the given ocean area, or None."""
-    preset = OCEAN_AREA_PRESETS.get(area, OCEAN_AREA_PRESETS["atlantic"])
-    return preset.get("ice_bbox")
-
-
-# ---------------------------------------------------------------------------
-# Global resync lock — prevents concurrent downloads
-# ---------------------------------------------------------------------------
-
-_resync_lock = threading.Lock()
-_resync_active: Optional[str] = None
+    cfg = Settings()
+    if not cfg.redis_enabled:
+        return None
+    return _redis.from_url(cfg.redis_url, decode_responses=True)
 
 
 def acquire_resync(field: str) -> bool:
     """Try to acquire the global resync lock. Returns False if another resync is running."""
-    global _resync_active
-    with _resync_lock:
-        if _resync_active is not None:
-            return False
-        _resync_active = field
-        return True
+    r = _get_redis()
+    if r is None:
+        return True  # no Redis = no lock
+    # SET NX = only set if key does not exist
+    return bool(r.set(_RESYNC_KEY, field, nx=True, ex=_RESYNC_TTL))
 
 
 def release_resync():
     """Release the global resync lock."""
-    global _resync_active
-    with _resync_lock:
-        _resync_active = None
+    r = _get_redis()
+    if r is not None:
+        r.delete(_RESYNC_KEY)
 
 
 def get_resync_status() -> Optional[str]:
     """Return the currently running resync field name, or None."""
-    return _resync_active
+    r = _get_redis()
+    if r is None:
+        return None
+    return r.get(_RESYNC_KEY)
+
+
+def set_resync_progress(label: str, status: str):
+    """Update progress for a specific field during resync.
+
+    Labels follow the pattern ``field:scope`` where scope is ``global``
+    or an ADRS area id (e.g. ``waves:adrs_1_2``).
+    Status is one of ``downloading``, ``done``, ``failed``.
+    """
+    import json as _json
+
+    r = _get_redis()
+    if r is None:
+        return
+    raw = r.get(_RESYNC_PROGRESS_KEY)
+    progress = _json.loads(raw) if raw else {}
+    progress[label] = status
+    r.set(_RESYNC_PROGRESS_KEY, _json.dumps(progress), ex=_RESYNC_TTL)
+
+
+def get_resync_progress() -> dict:
+    """Return per-field resync progress, e.g. {"wind:global": "done", ...}."""
+    import json as _json
+
+    r = _get_redis()
+    if r is None:
+        return {}
+    raw = r.get(_RESYNC_PROGRESS_KEY)
+    return _json.loads(raw) if raw else {}
+
+
+def clear_resync_progress():
+    """Clear resync progress tracking."""
+    r = _get_redis()
+    if r is not None:
+        r.delete(_RESYNC_PROGRESS_KEY)
 
 
 # ---------------------------------------------------------------------------
