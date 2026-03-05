@@ -20,7 +20,6 @@ from api.demo import (
     is_demo,
     is_demo_user,
     demo_mode_response,
-    limit_demo_frames,
 )
 from api.state import get_app_state
 from api.weather_fields import (
@@ -1593,14 +1592,11 @@ async def api_get_field_frames(
 
     cfg = get_field(field)
     mgr = get_layer_manager(field)
-    _is_demo = is_demo() and is_demo_user(request)
 
     # --- Cascading cache lookup (exact → default_bbox → areas → covering) ---
     cached = _resolve_cache(mgr, cfg, field, lat_min, lat_max, lon_min, lon_max)
     if cached is not None:
-        if _is_demo:
-            return limit_demo_frames(cached)
-        # Full user: try raw gzip for the exact key first
+        # Try raw gzip first (fast, avoids JSON re-serialization)
         cache_key = mgr.make_cache_key(lat_min, lat_max, lon_min, lon_max)
         raw = mgr.serve_frames_file(cache_key, lat_min, lat_max, lon_min, lon_max, use_covering=True)
         if raw is not None:
@@ -1622,8 +1618,6 @@ async def api_get_field_frames(
         )
         if cached:
             mgr.cache_put(cache_key, cached)
-            if _is_demo:
-                return limit_demo_frames(cached)
             return cached
 
     empty = {
