@@ -676,12 +676,17 @@ async def api_weather_readiness():
             # Fallback: check if a covering cache (e.g. union bbox) exists
             if envelope is None:
                 covering = find_covering_cache(
-                    mgr.cache_dir, mgr.name,
-                    lat_min, lat_max, lon_min, lon_max,
+                    mgr.cache_dir,
+                    mgr.name,
+                    lat_min,
+                    lat_max,
+                    lon_min,
+                    lon_max,
                 )
                 if covering is not None:
                     try:
                         import json as _json
+
                         envelope = _json.loads(covering.read_text())
                     except Exception:
                         envelope = None
@@ -690,7 +695,9 @@ async def api_weather_readiness():
 
             # Validate that cached data actually covers the requested bbox
             if envelope and frame_count >= cfg.expected_frames:
-                if not cache_covers_bounds(envelope, lat_min, lat_max, lon_min, lon_max, min_coverage=0.8):
+                if not cache_covers_bounds(
+                    envelope, lat_min, lat_max, lon_min, lon_max, min_coverage=0.8
+                ):
                     frame_count = 0  # data is from wrong area
 
             area_fields[name] = {
@@ -700,8 +707,7 @@ async def api_weather_readiness():
             }
 
         area_all_ready = all(
-            f["status"] in ("ready", "not_applicable")
-            for f in area_fields.values()
+            f["status"] in ("ready", "not_applicable") for f in area_fields.values()
         )
         areas[area_id] = {
             "label": area.label,
@@ -838,21 +844,18 @@ async def api_weather_resync_all():
                 # Area-specific fields — single download with union bbox
                 for field_name in ("waves", "currents", "sst"):
                     labels = [f"{field_name}:{a}" for a in selected]
-                    fut = pool.submit(
-                        _resync_field, field_name, union_bbox, labels
-                    )
+                    fut = pool.submit(_resync_field, field_name, union_bbox, labels)
                     futures[fut] = labels[0]
 
                 # Ice — union ice bbox (skip if no areas have ice)
                 if union_ice is not None:
                     ice_areas = [
-                        a for a in selected
+                        a
+                        for a in selected
                         if ADRS_AREAS.get(a) and ADRS_AREAS[a].ice_bbox
                     ]
                     labels = [f"ice:{a}" for a in ice_areas]
-                    fut = pool.submit(
-                        _resync_field, "ice", union_ice, labels
-                    )
+                    fut = pool.submit(_resync_field, "ice", union_ice, labels)
                     futures[fut] = labels[0]
 
                 for future in as_completed(futures):
@@ -1021,7 +1024,9 @@ async def api_weather_purge_all():
                 purged["db_runs"] = cur.rowcount
             conn.commit()
             conn.close()
-            logger.info(f"Purged DB: {purged['db_runs']} runs, {purged['db_grids']} grids")
+            logger.info(
+                f"Purged DB: {purged['db_runs']} runs, {purged['db_grids']} grids"
+            )
         except Exception as e:
             logger.error(f"DB purge failed: {e}")
             raise HTTPException(status_code=500, detail=f"DB purge failed: {e}")

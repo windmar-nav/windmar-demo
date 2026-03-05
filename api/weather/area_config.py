@@ -47,7 +47,5 @@ def set_selected_areas(areas: List[str]) -> None:
         raise ValueError("At least one area must be selected")
 
     _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _CONFIG_PATH.write_text(
-        json.dumps({"selected_areas": validated}, indent=2) + "\n"
-    )
+    _CONFIG_PATH.write_text(json.dumps({"selected_areas": validated}, indent=2) + "\n")
     logger.info("Selected areas updated: %s", validated)

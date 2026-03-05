@@ -37,6 +37,7 @@ def _get_redis():
     """Lazy Redis client for resync lock."""
     import redis as _redis
     from api.config import Settings
+
     cfg = Settings()
     if not cfg.redis_enabled:
         return None

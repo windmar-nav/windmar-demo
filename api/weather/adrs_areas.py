@@ -79,7 +79,9 @@ def get_adrs_area(area_id: str) -> ADRSArea:
     return ADRS_AREAS[area_id]
 
 
-def compute_union_bbox(area_ids: List[str]) -> Optional[Tuple[float, float, float, float]]:
+def compute_union_bbox(
+    area_ids: List[str],
+) -> Optional[Tuple[float, float, float, float]]:
     """Compute the union bounding box of multiple ADRS areas.
 
     Returns (lat_min, lat_max, lon_min, lon_max) or None if no valid areas.
@@ -99,7 +101,9 @@ def compute_union_bbox(area_ids: List[str]) -> Optional[Tuple[float, float, floa
     )
 
 
-def compute_union_ice_bbox(area_ids: List[str]) -> Optional[Tuple[float, float, float, float]]:
+def compute_union_ice_bbox(
+    area_ids: List[str],
+) -> Optional[Tuple[float, float, float, float]]:
     """Compute the union ice bounding box of multiple ADRS areas.
 
     Returns (lat_min, lat_max, lon_min, lon_max) or None if no areas have ice.

@@ -427,7 +427,11 @@ def _prefetch_all_weather():
     try:
         from api.weather.prefetch import do_generic_prefetch, get_layer_manager
         from api.weather_fields import FIELD_NAMES, get_field
-        from api.weather.adrs_areas import GLOBAL_FIELDS, AREA_SPECIFIC_FIELDS, get_adrs_area
+        from api.weather.adrs_areas import (
+            GLOBAL_FIELDS,
+            AREA_SPECIFIC_FIELDS,
+            get_adrs_area,
+        )
         from api.weather.area_config import get_selected_areas
 
         t0 = time.monotonic()
@@ -466,7 +470,9 @@ def _prefetch_all_weather():
         for field_name in FIELD_NAMES:
             if field_name in GLOBAL_FIELDS:
                 cfg = get_field(field_name)
-                work_items.append((field_name, cfg.default_bbox, f"{field_name}:global"))
+                work_items.append(
+                    (field_name, cfg.default_bbox, f"{field_name}:global")
+                )
 
         # Area-specific fields — per selected ADRS area
         for area_id in selected_areas:
