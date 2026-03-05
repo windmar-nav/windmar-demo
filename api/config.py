@@ -8,6 +8,20 @@ from typing import List, Optional
 from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# ---------------------------------------------------------------------------
+# Pre-load API key hashes from a mounted file BEFORE pydantic reads env vars.
+# Docker Compose and python-dotenv both interpolate $ signs, which corrupts
+# bcrypt hashes.  Reading the file raw avoids all interpolation layers.
+# ---------------------------------------------------------------------------
+_API_KEYS_FILE = os.environ.get("API_KEYS_FILE", "/app/api-keys.env")
+if os.path.exists(_API_KEYS_FILE):
+    with open(_API_KEYS_FILE) as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if _line and not _line.startswith("#") and "=" in _line:
+                _k, _v = _line.split("=", 1)
+                os.environ.setdefault(_k.strip(), _v.strip())
+
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""

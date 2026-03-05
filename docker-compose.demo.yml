@@ -32,8 +32,8 @@ services:
   api:
     image: ghcr.io/windmar-nav/windmar-api:demo
     container_name: windmar-api
-    env_file:
-      - api-keys.env
+    volumes:
+      - ./api-keys.env:/app/api-keys.env:ro
     environment:
       DATABASE_URL: postgresql://windmar:${DEMO_DB_PASSWORD:?DEMO_DB_PASSWORD env var required}@db:5432/windmar
       REDIS_ENABLED: "false"
