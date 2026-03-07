@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Callable, Dict, List, Optional, Tuple
 
+from src.optimization import numba_kernels as nk
 from src.optimization.vessel_model import VesselModel
 from src.optimization.voyage import LegWeather
 from src.optimization.seakeeping import SafetyConstraints, SafetyStatus
@@ -170,38 +171,17 @@ class BaseOptimizer(ABC):
          45-90°  → 0.02 – 0.08
          90-180° → 0.08 – 0.20
         """
-        diff = abs(((next_heading_deg - current_heading_deg) + 180) % 360 - 180)
-        if diff <= 15.0:
-            return 0.0
-        if diff <= 45.0:
-            return 0.02 * (diff - 15.0) / 30.0
-        if diff <= 90.0:
-            return 0.02 + 0.06 * (diff - 45.0) / 45.0
-        return 0.08 + 0.12 * (min(diff, 180.0) - 90.0) / 90.0
+        return nk.course_change_penalty(current_heading_deg, next_heading_deg)
 
     @staticmethod
     def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
         """Calculate great circle distance in nautical miles."""
-        R = 3440.065  # Earth radius in nm
-        dlat = math.radians(lat2 - lat1)
-        dlon = math.radians(lon2 - lon1)
-        a = (
-            math.sin(dlat / 2) ** 2
-            + math.cos(math.radians(lat1))
-            * math.cos(math.radians(lat2))
-            * math.sin(dlon / 2) ** 2
-        )
-        return R * 2 * math.asin(math.sqrt(a))
+        return nk.haversine(lat1, lon1, lat2, lon2)
 
     @staticmethod
     def bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
         """Calculate initial bearing from point 1 to point 2 (degrees)."""
-        dlon = math.radians(lon2 - lon1)
-        x = math.sin(dlon) * math.cos(math.radians(lat2))
-        y = math.cos(math.radians(lat1)) * math.sin(math.radians(lat2)) - math.sin(
-            math.radians(lat1)
-        ) * math.cos(math.radians(lat2)) * math.cos(dlon)
-        return (math.degrees(math.atan2(x, y)) + 360) % 360
+        return nk.bearing(lat1, lon1, lat2, lon2)
 
     @staticmethod
     def current_effect(
@@ -212,11 +192,7 @@ class BaseOptimizer(ABC):
 
         Returns speed adjustment in knots (positive = favorable).
         """
-        if current_speed_ms <= 0:
-            return 0.0
-        current_kts = current_speed_ms * 1.94384
-        relative_angle = abs(((current_dir_deg - heading_deg) + 180) % 360 - 180)
-        return current_kts * math.cos(math.radians(relative_angle))
+        return nk.current_effect(heading_deg, current_speed_ms, current_dir_deg)
 
     @staticmethod
     def estimate_wave_period(weather: LegWeather) -> float:

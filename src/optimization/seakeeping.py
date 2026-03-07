@@ -25,6 +25,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
+from src.optimization import numba_kernels as nk
 from src.optimization.vessel_model import VesselSpecs as _VS
 
 logger = logging.getLogger(__name__)
@@ -443,38 +444,16 @@ class SeakeepingModel:
 
         Roll is maximum in beam seas and at resonance.
         """
-        # Wave slope (steepness)
-        wave_slope = wave_height_m / wave_length_m
-
-        # Effective wave slope (reduced for non-beam seas)
-        beam_factor = abs(math.sin(encounter_angle_rad))
-        effective_slope = wave_slope * beam_factor
-
-        # Roll excitation moment coefficient
-        # Simplified: proportional to wave slope and GM
-        excitation = effective_slope * self.G / gm
-
-        # Frequency ratio
-        freq_ratio = omega_e / omega_roll
-
-        # Roll response amplitude using linear response
-        # RAO = 1 / sqrt((1 - r²)² + (2*zeta*r)²)
-        zeta = self.specs.roll_damping
-
-        denominator = math.sqrt((1 - freq_ratio**2) ** 2 + (2 * zeta * freq_ratio) ** 2)
-        if denominator < 0.1:
-            denominator = 0.1  # Avoid extreme resonance
-
-        rao = 1.0 / denominator
-
-        # Roll amplitude in degrees
-        # Scale by wave height and beam factor
-        roll_amplitude = math.degrees(excitation * rao) * (wave_height_m / 2)
-
-        # Cap at physical limits
-        roll_amplitude = min(roll_amplitude, 45.0)
-
-        return roll_amplitude
+        return nk.calculate_roll(
+            wave_height_m,
+            wave_length_m,
+            encounter_angle_rad,
+            omega_e,
+            omega_roll,
+            gm,
+            self.specs.roll_damping,
+            self.G,
+        )
 
     def _calculate_pitch(
         self,
@@ -488,31 +467,13 @@ class SeakeepingModel:
 
         Pitch is maximum in head/following seas.
         """
-        # Pitch is related to wave slope and L/lambda ratio
-        l_lambda = self.lpp / wave_length_m
-
-        # Head/following sea factor
-        head_factor = abs(math.cos(encounter_angle_rad))
-
-        # Wave slope
-        wave_slope = wave_height_m / wave_length_m
-
-        # Pitch amplitude depends on L/lambda ratio
-        # Maximum response when lambda ≈ L
-        if l_lambda < 0.5:
-            pitch_factor = 2.0 * l_lambda
-        elif l_lambda < 1.5:
-            pitch_factor = 1.0 - 0.3 * abs(l_lambda - 1.0)
-        else:
-            pitch_factor = 0.5 / l_lambda
-
-        # Pitch amplitude in degrees
-        pitch_amplitude = math.degrees(wave_slope * head_factor * pitch_factor * 10)
-
-        # Natural pitch period (roughly 0.5-0.6 * sqrt(Lpp))
-        pitch_period = 0.55 * math.sqrt(self.lpp)
-
-        return min(pitch_amplitude, 20.0), pitch_period
+        return nk.calculate_pitch(
+            wave_height_m,
+            wave_length_m,
+            encounter_angle_rad,
+            speed_ms,
+            self.lpp,
+        )
 
     def _calculate_heave_accel(
         self,
@@ -523,17 +484,7 @@ class SeakeepingModel:
         """
         Calculate heave acceleration at CG.
         """
-        # Heave amplitude ≈ wave amplitude for short ships
-        heave_amplitude = wave_height_m / 2
-
-        # Heave acceleration = amplitude * omega²
-        heave_accel = heave_amplitude * omega_e**2
-
-        # Reduce for beam seas (mostly roll)
-        beam_factor = abs(math.cos(encounter_angle_rad))
-        heave_accel *= 0.3 + 0.7 * beam_factor
-
-        return heave_accel
+        return nk.calculate_heave_accel(wave_height_m, omega_e, encounter_angle_rad)
 
     def _calculate_point_accel(
         self,
@@ -547,15 +498,12 @@ class SeakeepingModel:
 
         Combines heave and pitch-induced acceleration.
         """
-        pitch_rad = math.radians(pitch_amplitude_deg)
-
-        # Pitch-induced vertical acceleration at distance x from midship
-        pitch_accel = abs(distance_from_midship) * pitch_rad * omega_e**2
-
-        # Combined (RSS)
-        total_accel = math.sqrt(heave_accel**2 + pitch_accel**2)
-
-        return total_accel
+        return nk.calculate_point_accel(
+            heave_accel,
+            pitch_amplitude_deg,
+            omega_e,
+            distance_from_midship,
+        )
 
     def _calculate_slamming_probability(
         self,
@@ -573,30 +521,15 @@ class SeakeepingModel:
         1. Bow emerges from water
         2. Re-entry velocity exceeds threshold
         """
-        # Relative motion at bow (simplified)
-        pitch_rad = math.radians(pitch_amplitude_deg)
-        bow_vertical_motion = wave_height_m / 2 + self.specs.fp_from_midship * pitch_rad
-
-        # Probability of emergence
-        if bow_vertical_motion < 0.1:
-            return 0.0
-
-        emergence_ratio = bow_freeboard / bow_vertical_motion
-        if emergence_ratio > 3.0:
-            return 0.0
-
-        prob_emergence = math.exp(-2 * emergence_ratio**2)
-
-        # Head seas factor (slamming much worse in head seas)
-        head_factor = (1 + math.cos(encounter_angle_rad)) / 2
-
-        # Speed factor (higher speed = more slamming)
-        speed_factor = min(speed_ms / 8.0, 2.0)  # Normalized to ~16 kts
-
-        # Combined probability
-        slam_prob = prob_emergence * head_factor * speed_factor
-
-        return min(slam_prob, 1.0)
+        return nk.calculate_slamming_probability(
+            wave_height_m,
+            wave_period_s,
+            bow_freeboard,
+            speed_ms,
+            encounter_angle_rad,
+            pitch_amplitude_deg,
+            self.specs.fp_from_midship,
+        )
 
     def _calculate_green_water_probability(
         self,
@@ -607,28 +540,12 @@ class SeakeepingModel:
         """
         Calculate probability of green water on deck.
         """
-        pitch_rad = math.radians(pitch_amplitude_deg)
-
-        # Effective freeboard reduction due to pitch
-        effective_freeboard = bow_freeboard - self.specs.fp_from_midship * pitch_rad
-
-        # Relative motion amplitude
-        relative_motion = wave_height_m / 2
-
-        if effective_freeboard <= 0:
-            return 1.0
-
-        if relative_motion < 0.1:
-            return 0.0
-
-        # Probability based on freeboard exceedance
-        ratio = effective_freeboard / relative_motion
-        if ratio > 3.0:
-            return 0.0
-
-        prob = math.exp(-2 * ratio**2)
-
-        return min(prob, 1.0)
+        return nk.calculate_green_water_probability(
+            wave_height_m,
+            bow_freeboard,
+            pitch_amplitude_deg,
+            self.specs.fp_from_midship,
+        )
 
     def _calculate_parametric_roll_risk(
         self,
@@ -645,33 +562,13 @@ class SeakeepingModel:
         2. Wave length ≈ ship length
         3. Head or following seas
         """
-        # Period ratio (dangerous when Te ≈ Tr/2)
-        period_ratio = encounter_period_s / (roll_period_s / 2)
-
-        # Risk from period matching
-        if abs(period_ratio - 1.0) < 0.3:
-            period_risk = 1.0 - abs(period_ratio - 1.0) / 0.3
-        else:
-            period_risk = 0.0
-
-        # Risk from wave length matching ship length
-        l_lambda = self.lpp / wave_length_m
-        if 0.8 < l_lambda < 1.2:
-            length_risk = 1.0 - abs(l_lambda - 1.0) / 0.2
-        else:
-            length_risk = 0.0
-
-        # Head/following seas factor
-        head_follow = abs(math.cos(encounter_angle_rad))
-        if head_follow > 0.7:
-            heading_risk = 1.0
-        else:
-            heading_risk = head_follow / 0.7
-
-        # Combined risk
-        risk = period_risk * length_risk * heading_risk
-
-        return risk
+        return nk.calculate_parametric_roll_risk(
+            wave_length_m,
+            encounter_period_s,
+            roll_period_s,
+            encounter_angle_rad,
+            self.lpp,
+        )
 
 
 class SafetyConstraints:
