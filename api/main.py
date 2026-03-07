@@ -94,6 +94,11 @@ async def lifespan(application: FastAPI):
     except Exception as e:
         logger.warning("Could not auto-load calibration (using theoretical): %s", e)
 
+    # Pre-compile Numba JIT kernels (avoids ~3s delay on first route optimization)
+    from src.optimization.numba_kernels import warm_up as _numba_warm_up
+    _numba_warm_up()
+    logger.info("Numba JIT kernels compiled")
+
     logger.info("Startup complete")
 
     # Prefetch all weather fields on startup, then repeat every 6 hours

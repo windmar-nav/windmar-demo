@@ -15,6 +15,8 @@ from typing import Dict, Optional
 
 import numpy as np
 
+from src.optimization import numba_kernels as nk
+
 logger = logging.getLogger(__name__)
 
 
@@ -25,17 +27,12 @@ logger = logging.getLogger(__name__)
 
 def seawater_density(sst_celsius: float) -> float:
     """UNESCO 1983 simplified equation of state (salinity=35 PSU)."""
-    t = sst_celsius
-    rho_fw = 999.842594 + 6.793952e-2 * t - 9.095290e-3 * t**2 + 1.001685e-4 * t**3
-    return rho_fw + 0.824493 * 35 - 4.0899e-3 * 35 * t  # ~1022-1028 range
+    return nk.seawater_density(sst_celsius)
 
 
 def seawater_viscosity(sst_celsius: float) -> float:
     """Kinematic viscosity of seawater (Sharqawy 2010 correlation)."""
-    t = sst_celsius
-    mu = 1.7910 - 6.144e-2 * t + 1.4510e-3 * t**2 - 1.6826e-5 * t**3  # mPa·s
-    rho = seawater_density(t)
-    return (mu * 1e-3) / rho  # m²/s
+    return nk.seawater_viscosity(sst_celsius)
 
 
 @dataclass
@@ -300,51 +297,17 @@ class VesselModel:
         Returns:
             Total resistance (N)
         """
-        # Seawater properties — dynamic from SST when available (SPEC-P1)
         if sst_celsius is not None:
-            rho_sw = seawater_density(sst_celsius)
-            nu_sw = seawater_viscosity(sst_celsius)
+            rho_sw = nk.seawater_density(sst_celsius)
+            nu_sw = nk.seawater_viscosity(sst_celsius)
         else:
             rho_sw = self.RHO_SW
             nu_sw = self.NU_SW
 
-        # Calculate Froude number
-        froude = speed_ms / np.sqrt(9.81 * self.specs.lpp)
-
-        # Calculate Reynolds number
-        reynolds = speed_ms * self.specs.lpp / nu_sw
-
-        # Frictional resistance coefficient (ITTC 1957)
-        cf = 0.075 / (np.log10(reynolds) - 2) ** 2
-
-        # Hull roughness allowance (ITTC standard for in-service hull)
-        delta_cf = 0.00025
-
-        # Form factor (Holtrop-Mennen for tankers)
-        k1 = (
-            0.93
-            + 0.4871 * (self.specs.beam / self.specs.lpp)
-            - 0.2156 * (self.specs.beam / draft)
-            + 0.1027 * cb
+        return nk.holtrop_mennen_resistance(
+            speed_ms, draft, displacement, cb, wetted_surface,
+            self.specs.lpp, self.specs.beam, rho_sw, nu_sw,
         )
-        k1 = max(0.1, k1)  # Floor for extreme B/T ratios (e.g. ballast)
-
-        # Frictional resistance (including hull roughness)
-        rf = 0.5 * rho_sw * speed_ms**2 * wetted_surface * (cf + delta_cf) * (1 + k1)
-
-        # Wave-making resistance (empirical for full-form ships)
-        # For tankers (CB > 0.75) at low Froude numbers (Fn < 0.25),
-        # Rw is a small fraction of total resistance, scaling with Fn².
-        rw_ratio = 4.0 * froude**2
-        rw = rw_ratio * rf
-
-        # Appendage resistance (rudder, bilge keels ~5% of frictional)
-        rapp = 0.05 * rf
-
-        # Total resistance
-        total_resistance = rf + rw + rapp
-
-        return total_resistance
 
     def _wind_resistance(
         self,
@@ -367,10 +330,6 @@ class VesselModel:
         Returns:
             Wind resistance (N), always >= 0
         """
-        # Relative angle: 0° = headwind, 90° = beam, 180° = tailwind
-        relative_angle = abs(((wind_dir_deg - heading_deg) + 180) % 360 - 180)
-        relative_angle_rad = np.radians(relative_angle)
-
         frontal_area = (
             self.specs.frontal_area_laden
             if is_laden
@@ -382,20 +341,10 @@ class VesselModel:
             else self.specs.lateral_area_ballast
         )
 
-        # Longitudinal drag coefficient (Blendermann for merchant vessels)
-        # Headwind (0°) → max drag ~0.8, tailwind (180°) → 0 drag
-        cx_drag = 0.8 * np.cos(relative_angle_rad)
-        direct_resistance = (
-            max(0.0, cx_drag) * 0.5 * self.RHO_AIR * wind_speed_ms**2 * frontal_area
+        return nk.wind_resistance(
+            wind_speed_ms, wind_dir_deg, heading_deg,
+            frontal_area, lateral_area, self.RHO_AIR,
         )
-
-        # Transverse wind creates drift, adding ~10% to effective resistance
-        cy = 0.9 * abs(np.sin(relative_angle_rad))
-        drift_resistance = (
-            0.1 * cy * 0.5 * self.RHO_AIR * wind_speed_ms**2 * lateral_area
-        )
-
-        return direct_resistance + drift_resistance
 
     def _wave_resistance(
         self,
@@ -458,28 +407,10 @@ class VesselModel:
         Returns:
             Added wave resistance (N)
         """
-        # Relative angle: 0° = head seas, 180° = following seas
-        relative_angle = abs(((wave_dir_deg - heading_deg) + 180) % 360 - 180)
-        relative_angle_rad = np.radians(relative_angle)
-
-        # Directional factor (head seas = 1, following seas = 0)
-        directional_factor = (1 + np.cos(relative_angle_rad)) / 2
-
-        # STAWAVE-1 added resistance in waves
-        # R_AW = (1/16) * rho * g * Hs² * B * sqrt(B/Lpp) * alpha_BK
-        alpha_bk = 1.0  # Block coefficient correction (~1.0 for CB > 0.75)
-        raw = (
-            (1.0 / 16.0)
-            * self.RHO_SW
-            * 9.81
-            * sig_wave_height_m**2
-            * self.specs.beam
-            * np.sqrt(self.specs.beam / self.specs.lpp)
-            * alpha_bk
-            * directional_factor
+        return nk.stawave1_wave_resistance(
+            sig_wave_height_m, wave_dir_deg, heading_deg,
+            speed_ms, self.specs.beam, self.specs.lpp, self.RHO_SW,
         )
-
-        return raw
 
     def _kwon_wave_resistance(
         self,
@@ -509,43 +440,14 @@ class VesselModel:
         if speed_ms <= 0:
             return 0.0
 
-        # Relative angle: 0° = head seas, 180° = following seas
-        relative_angle = abs(((wave_dir_deg - heading_deg) + 180) % 360 - 180)
-
         cb = self.specs.cb_laden if is_laden else self.specs.cb_ballast
-        lpp = self.specs.lpp
 
-        # Kwon base speed loss coefficient (% per metre Hs)
-        # For tankers/bulk carriers (CB > 0.75): ~3% per metre Hs head seas
-        # Adjusted by Cb and Lpp
-        cb_factor = 1.7 - 0.9 * cb  # Higher CB = less speed loss
-        length_factor = max(0.5, min(1.5, 180.0 / lpp))  # Shorter ship = more loss
+        delta_v_pct = nk.kwon_speed_loss_pct(
+            sig_wave_height_m, wave_dir_deg, heading_deg,
+            cb, self.specs.lpp,
+        )
 
-        base_loss_pct_per_m = 3.0 * cb_factor * length_factor
-
-        # Directional reduction factor
-        # Head seas (0°): 1.0, beam seas (90°): 0.7, following seas (180°): 0.2
-        if relative_angle <= 30:
-            dir_factor = 1.0
-        elif relative_angle <= 60:
-            dir_factor = 0.9
-        elif relative_angle <= 90:
-            dir_factor = 0.7
-        elif relative_angle <= 150:
-            dir_factor = 0.4
-        else:
-            dir_factor = 0.2
-
-        # Speed loss percentage
-        delta_v_pct = base_loss_pct_per_m * sig_wave_height_m * dir_factor
-        delta_v_pct = min(delta_v_pct, 50.0)  # Cap at 50%
-
-        # Convert speed loss to equivalent added resistance:
-        # P ∝ V³ → ΔP/P ≈ 3 * ΔV/V for small losses
-        # R = P/V → ΔR/R ≈ 2 * ΔV/V (since P = R*V)
-        # For added resistance at constant speed:
-        # R_added = R_calm * (2 * delta_v_pct / 100)
-        # We approximate R_calm from tow power at current speed
+        # Convert speed loss to equivalent added resistance
         draft = self.specs.draft_laden if is_laden else self.specs.draft_ballast
         displacement = (
             self.specs.displacement_laden
@@ -559,15 +461,10 @@ class VesselModel:
         )
 
         r_calm = self._holtrop_mennen_resistance(
-            speed_ms,
-            draft,
-            displacement,
-            cb,
-            wetted_surface,
+            speed_ms, draft, displacement, cb, wetted_surface,
         )
 
-        r_wave = r_calm * 2.0 * (delta_v_pct / 100.0)
-        return r_wave
+        return r_calm * 2.0 * (delta_v_pct / 100.0)
 
     def _sfoc_curve(self, load_fraction: float) -> float:
         """
@@ -581,22 +478,11 @@ class VesselModel:
         Returns:
             SFOC in g/kWh
         """
-        # Ensure load is within reasonable range
-        load_fraction = max(0.15, min(1.0, load_fraction))
-
-        # Typical SFOC curve for modern 2-stroke diesel
-        # SFOC is optimal around 75-85% load
-        if load_fraction < 0.75:
-            # Below optimal load, SFOC increases
-            sfoc = self.specs.sfoc_at_mcr * (1.0 + 0.15 * (0.75 - load_fraction))
-        else:
-            # At and above optimal load
-            sfoc = self.specs.sfoc_at_mcr * (1.0 + 0.05 * (load_fraction - 0.75))
-
-        # Apply calibration SFOC factor (engine degradation / actual measurement)
-        sfoc *= self.calibration_factors.get("sfoc_factor", 1.0)
-
-        return sfoc
+        return nk.sfoc_curve(
+            load_fraction,
+            self.specs.sfoc_at_mcr,
+            self.calibration_factors.get("sfoc_factor", 1.0),
+        )
 
     def get_optimal_speed(
         self,
