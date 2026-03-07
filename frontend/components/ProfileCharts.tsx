@@ -246,20 +246,21 @@ export default function ProfileCharts({ baseline, optimizations, departureTime }
     [departureMs, maxEtaMs, baselineProfile, optProfiles, visible],
   );
 
-  // Auto-scale SOG Y-axis
+  // Auto-scale SOG Y-axis — fixed to min/max across ALL solutions (not just visible)
+  // so toggling routes doesn't shift the axis and differences are always readable.
   const sogDomain = useMemo<[number, number]>(() => {
     let min = Infinity, max = -Infinity;
-    for (const row of sogData) {
-      for (const [k, v] of Object.entries(row)) {
-        if (k === 'time' || v === undefined) continue;
-        const n = Number(v);
-        if (n < min) min = n;
-        if (n > max) max = n;
+    const scan = (pts: TimePoint[]) => {
+      for (const p of pts) {
+        if (p.sog < min) min = p.sog;
+        if (p.sog > max) max = p.sog;
       }
-    }
+    };
+    scan(baselineProfile);
+    for (const profile of optProfiles.values()) scan(profile);
     if (!isFinite(min)) return [0, 15];
     return [Math.max(0, Math.floor((min - 0.5) * 2) / 2), Math.ceil((max + 0.5) * 2) / 2];
-  }, [sogData]);
+  }, [baselineProfile, optProfiles]);
 
   // X-axis tick formatter — choose ~8 evenly spaced ticks
   const timeDomain = useMemo<[number, number]>(() => [departureMs, maxEtaMs], [departureMs, maxEtaMs]);
