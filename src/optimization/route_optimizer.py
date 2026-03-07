@@ -204,6 +204,36 @@ class RouteOptimizer(BaseOptimizer):
         # Weather provider function (set before optimization)
         self.weather_provider: Optional[Callable] = None
 
+    # ------------------------------------------------------------------
+    # Waypoint interpolation for baseline route evaluation
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _interpolate_waypoints(
+        waypoints: List[Tuple[float, float]],
+        max_leg_nm: float = 30.0,
+    ) -> List[Tuple[float, float]]:
+        """Subdivide long legs so each segment is at most *max_leg_nm*.
+
+        Ensures weather is sampled at multiple points along the route
+        rather than a single midpoint per leg.
+        """
+        from src.optimization.base_optimizer import BaseOptimizer
+
+        result = [waypoints[0]]
+        for i in range(len(waypoints) - 1):
+            lat1, lon1 = waypoints[i]
+            lat2, lon2 = waypoints[i + 1]
+            dist = BaseOptimizer.haversine(lat1, lon1, lat2, lon2)
+            n_seg = max(1, int(math.ceil(dist / max_leg_nm)))
+            for j in range(1, n_seg):
+                frac = j / n_seg
+                result.append(
+                    (lat1 + frac * (lat2 - lat1), lon1 + frac * (lon2 - lon1))
+                )
+            result.append((lat2, lon2))
+        return result
+
         # Time-value penalty (computed per voyage in optimize_route)
         self._lambda_time: float = 0.0
 
@@ -427,12 +457,15 @@ class RouteOptimizer(BaseOptimizer):
         waypoints[0] = origin
         waypoints[-1] = destination
 
-        # "Direct" route = user's original waypoints if provided, else straight line
+        # "Direct" route = user's original waypoints if provided, else straight line.
+        # Interpolate so each segment is ~30 NM — ensures per-leg weather sampling
+        # captures spatial variation (currents, wind, waves) instead of one midpoint.
         direct_wps = (
             list(route_waypoints)
             if route_waypoints and len(route_waypoints) > 2
             else [origin, destination]
         )
+        direct_wps = self._interpolate_waypoints(direct_wps)
 
         # Calculate direct route for comparison (constant speed to match voyage calculator)
         direct_fuel, direct_time, direct_distance, _, _, _ = (
@@ -726,12 +759,13 @@ class RouteOptimizer(BaseOptimizer):
         # Restore lambda for stats calculation
         self._lambda_time = base_fuel_rate * self.TIME_PENALTY_WEIGHT
 
-        # Calculate direct route for comparison
+        # Calculate direct route for comparison (interpolated for weather sampling)
         direct_wps = (
             list(route_waypoints)
             if route_waypoints and len(route_waypoints) > 2
             else [origin, destination]
         )
+        direct_wps = self._interpolate_waypoints(direct_wps)
         direct_fuel, direct_time, direct_distance, _, _, _ = (
             self._calculate_route_stats(
                 direct_wps,
