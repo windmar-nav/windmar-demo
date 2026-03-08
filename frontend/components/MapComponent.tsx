@@ -82,7 +82,7 @@ const Tooltip = dynamic(
 
 const DEFAULT_CENTER: [number, number] = [48, 5];
 const DEFAULT_ZOOM = 4;
-const INITIAL_BOUNDS: [[number, number], [number, number]] = [[25, -40], [72, 50]];
+const INITIAL_BOUNDS: [[number, number], [number, number]] = [[25, -50], [72, 50]];
 
 export type WeatherLayer = 'wind' | 'waves' | 'currents' | 'ice' | 'visibility' | 'sst' | 'swell' | 'none';
 

@@ -14,9 +14,9 @@ export const DEMO_TOOLTIP =
   'This feature is disabled in demo mode.';
 
 /** ADRS 1+2 + 4 union bounding box for map lock.
- *  Matches backend weather coverage: 25N-72N, 40W-50E. */
+ *  Matches backend weather coverage: 25N-72N, 50W-50E. */
 export const DEMO_BOUNDS: [[number, number], [number, number]] = [
-  [25, -40],
+  [25, -50],
   [72, 50],
 ];
 
