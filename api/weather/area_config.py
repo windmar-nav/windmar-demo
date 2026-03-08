@@ -15,7 +15,7 @@ from api.weather.adrs_areas import ADRS_AREAS
 logger = logging.getLogger(__name__)
 
 _CONFIG_PATH = Path("data/area_config.json")
-_DEFAULT_AREAS = ["adrs_1_2"]
+_DEFAULT_AREAS = ["adrs_1_2", "adrs_4"]
 
 
 def get_selected_areas() -> List[str]:
