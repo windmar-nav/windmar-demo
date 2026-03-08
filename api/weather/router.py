@@ -1598,8 +1598,20 @@ def _resolve_cache_file(
             logger.info(f"{field} frames: default_bbox cache hit ({default_key})")
             return default_path
 
-    # 3. Selected ADRS area bbox keys (catches CMEMS fields)
+    # 3. Union bbox of selected ADRS areas (covers full initial viewport)
     selected_areas = get_selected_areas()
+    from api.weather.adrs_areas import compute_union_bbox
+
+    union = compute_union_bbox(selected_areas)
+    if union is not None:
+        union_key = mgr.make_cache_key(union[0], union[1], union[2], union[3])
+        if union_key != exact_key and union_key != default_key:
+            union_path = mgr.cache_path(union_key)
+            if union_path.exists() and check_cache_header(union_path):
+                logger.info(f"{field} frames: union cache hit ({union_key})")
+                return union_path
+
+    # 4. Individual ADRS area bbox keys (fallback for single-area setups)
     for area_id in selected_areas:
         try:
             area = get_adrs_area(area_id)
@@ -1614,7 +1626,7 @@ def _resolve_cache_file(
                 logger.info(f"{field} frames: area {area_id} cache hit ({area_key})")
                 return area_path
 
-    # 4. Filesystem scan for any covering cache file
+    # 5. Filesystem scan for any covering cache file
     covering = find_covering_cache(
         mgr.cache_dir, mgr.name, lat_min, lat_max, lon_min, lon_max
     )
@@ -1622,7 +1634,7 @@ def _resolve_cache_file(
         logger.info(f"{field} frames: covering cache hit ({covering.name})")
         return covering
 
-    # 5. Swell shares wave data — fall back to wave cache
+    # 6. Swell shares wave data — fall back to wave cache
     if field == "swell":
         wave_mgr = get_layer_manager("waves")
         return _resolve_cache_file(

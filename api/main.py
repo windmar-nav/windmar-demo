@@ -486,21 +486,25 @@ def _prefetch_all_weather():
             cfg = get_field(field_name)
             work_items.append((field_name, cfg.default_bbox, f"{field_name}:default"))
 
-        # Area-specific CMEMS fields — cache per selected ADRS area only
-        for area_id in selected_areas:
-            try:
-                area = get_adrs_area(area_id)
-            except KeyError:
+        # Area-specific CMEMS fields — cache at the union bbox of all
+        # selected areas so the single-frame endpoint finds one cache
+        # that covers the entire initial viewport.
+        from api.weather.adrs_areas import compute_union_bbox, compute_union_ice_bbox
+
+        union = compute_union_bbox(selected_areas)
+        union_ice = compute_union_ice_bbox(selected_areas)
+
+        for field_name in FIELD_NAMES:
+            if field_name not in AREA_SPECIFIC_FIELDS:
                 continue
-            for field_name in FIELD_NAMES:
-                if field_name not in AREA_SPECIFIC_FIELDS:
-                    continue
-                if field_name == "swell":
-                    continue  # shares wave cache
-                if field_name == "ice" and area.ice_bbox is None:
-                    continue
-                bbox = area.ice_bbox if field_name == "ice" else area.bbox
-                work_items.append((field_name, bbox, f"{field_name}:{area_id}"))
+            if field_name == "swell":
+                continue  # shares wave cache
+            if field_name == "ice":
+                if union_ice is not None:
+                    work_items.append((field_name, union_ice, f"{field_name}:union"))
+                continue
+            if union is not None:
+                work_items.append((field_name, union, f"{field_name}:union"))
 
         # Rebuild file caches from DB data only — no provider downloads.
         # Provider downloads are triggered exclusively via manual /resync.
