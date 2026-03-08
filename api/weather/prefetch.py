@@ -203,7 +203,11 @@ def do_generic_prefetch(
         )
         if rebuilt and len(rebuilt.get("frames", {})) >= min_frames:
             mgr.cache_put(cache_key, rebuilt)
-            if cache_covers_bounds(rebuilt, lat_min, lat_max, lon_min, lon_max):
+            # When live download is available (db_only=False), require strict
+            # 100% coverage from DB data; otherwise accept 80% coverage.
+            coverage_threshold = 1.0 if not db_only else 0.8
+            if cache_covers_bounds(rebuilt, lat_min, lat_max, lon_min, lon_max,
+                                   min_coverage=coverage_threshold):
                 logger.info(
                     f"{field_name} forecast rebuilt from DB, skipping provider download"
                 )
