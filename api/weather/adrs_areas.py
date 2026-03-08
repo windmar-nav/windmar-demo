@@ -33,14 +33,14 @@ ADRS_AREAS: Dict[str, ADRSArea] = {
         id="adrs_1_2",
         label="ADRS 1+2: NW Europe",
         description="North Sea, Baltic, Norwegian Sea, NE Atlantic",
-        bbox=(35.0, 72.0, -30.0, 30.0),
+        bbox=(25.0, 72.0, -40.0, 30.0),
         ice_bbox=None,
     ),
     "adrs_4": ADRSArea(
         id="adrs_4",
         label="ADRS 4: Mediterranean",
         description="Mediterranean Sea, Black Sea, Strait of Gibraltar",
-        bbox=(28.0, 47.0, -10.0, 42.0),
+        bbox=(25.0, 47.0, -10.0, 50.0),
         ice_bbox=None,
     ),
     "adrs_3": ADRSArea(
