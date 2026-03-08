@@ -110,6 +110,9 @@ jobs:
               echo "WARNING: demo-snapshot.sql.gz was missing, created placeholder"
             fi
 
+            # Preserve DB volume across deploys (weather data persists).
+            # To reset weather data: manually SCP a new snapshot, then
+            # docker volume rm windmar-demo_postgres_data && docker compose up -d
             docker compose -f docker-compose.demo.yml down
             docker compose -f docker-compose.demo.yml up -d --force-recreate
 

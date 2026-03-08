@@ -1289,6 +1289,62 @@ async def api_get_weather_field(
         if db_weather is not None:
             ingested_at = datetime.now(timezone.utc)
 
+    # File-cache fallback for CMEMS fields without DB data.
+    # The /frames endpoint uses _resolve_cache_file with cascading lookup —
+    # replicate that here so the single-frame endpoint is consistent.
+    if data is None and field in _CMEMS_FIELDS:
+        import json
+
+        mgr = get_layer_manager(field)
+        cache_file = _resolve_cache_file(
+            mgr, cfg, field, lat_min, lat_max, lon_min, lon_max
+        )
+        if cache_file is not None:
+            try:
+                envelope = json.loads(cache_file.read_bytes())
+                frames = envelope.get("frames", {})
+                if frames:
+                    # Pick the first (closest-to-analysis-time) frame
+                    frame_key = min(frames.keys(), key=lambda k: int(k))
+                    frame = frames[frame_key]
+                    run_time_str = envelope.get("run_time", "")
+                    response = {
+                        "parameter": cfg.parameters[0] if cfg.components == "scalar" else cfg.name,
+                        "field": field,
+                        "time": time.isoformat(),
+                        "bbox": {
+                            "lat_min": float(envelope["lats"][0]) if envelope.get("lats") else lat_min,
+                            "lat_max": float(envelope["lats"][-1]) if envelope.get("lats") else lat_max,
+                            "lon_min": float(envelope["lons"][0]) if envelope.get("lons") else lon_min,
+                            "lon_max": float(envelope["lons"][-1]) if envelope.get("lons") else lon_max,
+                        },
+                        "resolution": resolution,
+                        "nx": envelope.get("nx", 0),
+                        "ny": envelope.get("ny", 0),
+                        "lats": envelope.get("lats", []),
+                        "lons": envelope.get("lons", []),
+                        "unit": cfg.unit,
+                        "source": envelope.get("source", cfg.source.split("_")[0]),
+                    }
+                    # Copy frame data (data, direction, windwave, swell, u, v)
+                    for key in ("data", "direction", "windwave", "swell", "u", "v"):
+                        if key in frame:
+                            response[key] = frame[key]
+                    if cfg.components == "wave_decomp":
+                        response["has_decomposition"] = "windwave" in frame and "swell" in frame
+                    if envelope.get("ocean_mask") is not None:
+                        response["ocean_mask"] = envelope["ocean_mask"]
+                        response["ocean_mask_lats"] = envelope.get("ocean_mask_lats", [])
+                        response["ocean_mask_lons"] = envelope.get("ocean_mask_lons", [])
+                    if envelope.get("colorscale") is not None:
+                        response["colorscale"] = envelope["colorscale"]
+                    if run_time_str:
+                        response["ingested_at"] = run_time_str
+                    logger.info(f"{field} single-frame: served from file cache (frame {frame_key})")
+                    return response
+            except Exception:
+                logger.warning(f"{field} single-frame: cache file parse failed", exc_info=True)
+
     if data is None or not hasattr(data, "lats") or data.lats is None:
         raise HTTPException(
             status_code=503, detail=f"No {field} data available. Try resyncing."
