@@ -454,7 +454,7 @@ def _prefetch_all_weather():
             ", ".join(selected_areas),
         )
 
-        def _prefetch_item(field_name: str, bbox, label: str):
+        def _prefetch_item(field_name: str, bbox, label: str, db_only: bool = True):
             ft0 = time.monotonic()
             try:
                 mgr = get_layer_manager(field_name)
@@ -465,7 +465,7 @@ def _prefetch_all_weather():
                     lat_max,
                     lon_min,
                     lon_max,
-                    db_only=True,
+                    db_only=db_only,
                 )
                 logger.info(
                     "Weather prefetch %s complete (%.0fs)",
@@ -475,25 +475,27 @@ def _prefetch_all_weather():
             except Exception as e:
                 logger.error("Weather prefetch %s failed: %s", label, e)
 
-        # Build work items.  Global fields (wind, visibility) get a
-        # default_bbox cache.  Area-specific CMEMS fields get only per-area
-        # caches — their default_bbox is the Atlantic which may exceed the
-        # DB snapshot's actual coverage, wasting time on failed rebuilds.
-        work_items = []
-
-        # Global fields — cache at default_bbox
-        for field_name in GLOBAL_FIELDS:
-            cfg = get_field(field_name)
-            work_items.append((field_name, cfg.default_bbox, f"{field_name}:default"))
-
-        # Area-specific CMEMS fields — cache at the union bbox of all
-        # selected areas so the single-frame endpoint finds one cache
-        # that covers the entire initial viewport.
         from api.weather.adrs_areas import compute_union_bbox, compute_union_ice_bbox
 
         union = compute_union_bbox(selected_areas)
         union_ice = compute_union_ice_bbox(selected_areas)
 
+        # work_items: (field_name, bbox, label, db_only)
+        work_items = []
+
+        # GFS global fields (wind, visibility) — download from GFS at
+        # the union bbox.  GFS is free/fast (NOAA open data) so live
+        # download at startup is fine.  Using union bbox instead of the
+        # global default_bbox keeps the download small.
+        gfs_bbox = union or (-85.0, 85.0, -179.75, 179.75)
+        for field_name in GLOBAL_FIELDS:
+            work_items.append(
+                (field_name, gfs_bbox, f"{field_name}:default", False)
+            )
+
+        # CMEMS fields — rebuild from DB snapshot only (no live CMEMS
+        # download).  Cache at the union bbox so the single-frame
+        # endpoint finds one cache covering the entire viewport.
         for field_name in FIELD_NAMES:
             if field_name not in AREA_SPECIFIC_FIELDS:
                 continue
@@ -501,13 +503,15 @@ def _prefetch_all_weather():
                 continue  # shares wave cache
             if field_name == "ice":
                 if union_ice is not None:
-                    work_items.append((field_name, union_ice, f"{field_name}:union"))
+                    work_items.append(
+                        (field_name, union_ice, f"{field_name}:union", True)
+                    )
                 continue
             if union is not None:
-                work_items.append((field_name, union, f"{field_name}:union"))
+                work_items.append(
+                    (field_name, union, f"{field_name}:union", True)
+                )
 
-        # Rebuild file caches from DB data only — no provider downloads.
-        # Provider downloads are triggered exclusively via manual /resync.
         # max_workers=1 keeps peak memory under the 2GB container limit
         # (wave cache alone can use ~1.5GB when decompressing 328 grids).
         with ThreadPoolExecutor(
