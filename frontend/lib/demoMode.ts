@@ -13,11 +13,11 @@ export const DEMO_MODE =
 export const DEMO_TOOLTIP =
   'This feature is disabled in demo mode.';
 
-/** NE Atlantic + Mediterranean bounding box for map lock.
- *  Matches backend weather viewport: 30N-60N, 30W-40E. */
+/** ADRS 1+2 + 4 union bounding box for map lock.
+ *  Matches backend weather coverage: 25N-72N, 40W-50E. */
 export const DEMO_BOUNDS: [[number, number], [number, number]] = [
-  [30, -30],
-  [60, 40],
+  [25, -40],
+  [72, 50],
 ];
 
 // ============================================================================

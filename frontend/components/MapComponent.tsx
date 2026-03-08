@@ -80,9 +80,9 @@ const Tooltip = dynamic(
   { ssr: false }
 );
 
-const DEFAULT_CENTER: [number, number] = [45, 5];
-const DEFAULT_ZOOM = 5;
-const INITIAL_BOUNDS: [[number, number], [number, number]] = [[30, -30], [60, 40]];
+const DEFAULT_CENTER: [number, number] = [48, 5];
+const DEFAULT_ZOOM = 4;
+const INITIAL_BOUNDS: [[number, number], [number, number]] = [[25, -40], [72, 50]];
 
 export type WeatherLayer = 'wind' | 'waves' | 'currents' | 'ice' | 'visibility' | 'sst' | 'swell' | 'none';
 
@@ -180,7 +180,7 @@ export default function MapComponent({
       <MapContainer
         center={DEFAULT_CENTER}
         zoom={DEFAULT_ZOOM}
-        minZoom={3}
+        minZoom={DEMO_MODE ? 4 : 3}
         zoomSnap={0.25}
         zoomDelta={0.5}
         maxBounds={DEMO_MODE ? DEMO_BOUNDS : [[-85, -180], [85, 180]]}
