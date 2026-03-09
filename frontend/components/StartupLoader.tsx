@@ -188,7 +188,7 @@ export default function StartupLoader({
           <Globe className="w-7 h-7 text-blue-400" />
           <div>
             <h2 className="text-white text-lg font-semibold">Select Sailing Area</h2>
-            <p className="text-gray-400 text-xs">ADRS Volume 6 coverage areas</p>
+            <p className="text-gray-400 text-xs">Ocean coverage areas</p>
           </div>
         </div>
 

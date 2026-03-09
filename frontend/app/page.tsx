@@ -40,6 +40,18 @@ export default function HomePage() {
   // Weather readiness (startup screen)
   const readiness = useWeatherReadiness();
 
+  // Derive coverage bounds from selected ADRS areas
+  const coverageBounds = useMemo<[[number, number], [number, number]] | null>(() => {
+    const { availableAreas, selectedAreas } = readiness;
+    if (!availableAreas.length || !selectedAreas.length) return null;
+    const selected = availableAreas.filter(a => selectedAreas.includes(a.id));
+    if (!selected.length) return null;
+    return [
+      [Math.min(...selected.map(a => a.bbox[0])), Math.min(...selected.map(a => a.bbox[2]))],
+      [Math.max(...selected.map(a => a.bbox[1])), Math.max(...selected.map(a => a.bbox[3]))],
+    ];
+  }, [readiness.availableAreas, readiness.selectedAreas]);
+
   // Ephemeral state (local to this page)
   const [isEditing, setIsEditing] = useState(true);
   const [isCalculating, setIsCalculating] = useState(false);
@@ -516,6 +528,7 @@ export default function HomePage() {
             fitBounds={fitBounds}
             fitKey={fitKey}
             restoredViewport={lastViewport}
+            coverageBounds={coverageBounds}
           >
             {/* Weather mode: overlay controls */}
             <MapOverlayControls

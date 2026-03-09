@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 import { WindFieldData, WaveFieldData, SwellFieldData, VelocityData, GridFieldData } from '@/lib/api';
 import { bilinearInterpolate, getGridIndices } from '@/lib/gridInterpolation';
 
-type ActiveLayer = 'waves' | 'swell' | 'wind' | 'currents' | 'visibility';
+type ActiveLayer = 'waves' | 'swell' | 'wind' | 'currents' | 'visibility' | 'sst' | 'ice';
 
 interface WeatherHoverTooltipProps {
   layer: ActiveLayer;
@@ -13,6 +13,8 @@ interface WeatherHoverTooltipProps {
   swellData: SwellFieldData | null;
   currentVelocityData: VelocityData[] | null;
   visibilityData: GridFieldData | null;
+  sstData: GridFieldData | null;
+  iceData: GridFieldData | null;
 }
 
 /** 16-point compass label */
@@ -72,7 +74,7 @@ function uvToSpeedDir(u: number, v: number): { speed: number; dir: number } {
  * throttled to ~16 fps. Content adapts to the active layer.
  */
 export default function WaveInfoPopup({
-  layer, windData, waveData, swellData, currentVelocityData, visibilityData,
+  layer, windData, waveData, swellData, currentVelocityData, visibilityData, sstData, iceData,
 }: WeatherHoverTooltipProps) {
   const { useMap } = require('react-leaflet');
   const L = require('leaflet');
@@ -84,12 +86,16 @@ export default function WaveInfoPopup({
   const swellRef = useRef(swellData);
   const curRef   = useRef(currentVelocityData);
   const visRef   = useRef(visibilityData);
+  const sstRef   = useRef(sstData);
+  const iceRef   = useRef(iceData);
   layerRef.current = layer;
   windRef.current  = windData;
   waveRef.current  = waveData;
   swellRef.current = swellData;
   curRef.current   = currentVelocityData;
   visRef.current   = visibilityData;
+  sstRef.current   = sstData;
+  iceRef.current   = iceData;
 
   useEffect(() => {
     const container = map.getContainer();
@@ -221,6 +227,67 @@ export default function WaveInfoPopup({
         let h = `<div style="font-weight:700;font-size:12px;color:#fff;margin-bottom:2px">`
               + `Visibility ${km.toFixed(1)} km &nbsp;(${nm.toFixed(1)} nm)</div>`;
         h += `<div style="color:${fogColor}">${fogLabel}</div>`;
+        tip.innerHTML = h;
+      }
+
+      // ------------------------------------------------------------------
+      // SST layer
+      // ------------------------------------------------------------------
+      else if (mode === 'sst') {
+        const sd = sstRef.current;
+        if (!sd || !sd.data) { tip.style.display = 'none'; return; }
+        const mask = sd.ocean_mask;
+        if (mask) {
+          const mLats = sd.ocean_mask_lats || sd.lats;
+          const mLons = sd.ocean_mask_lons || sd.lons;
+          const mNy = mLats.length, mNx = mLons.length;
+          const mi = Math.round(((lat - mLats[0]) / (mLats[mNy - 1] - mLats[0])) * (mNy - 1));
+          const mj = Math.round(((lon - mLons[0]) / (mLons[mNx - 1] - mLons[0])) * (mNx - 1));
+          if (mi < 0 || mi >= mNy || mj < 0 || mj >= mNx || !mask[mi]?.[mj]) {
+            tip.style.display = 'none'; return;
+          }
+        }
+        const gi = getGridIndices(lat, lon, sd.lats, sd.lons);
+        if (!gi) { tip.style.display = 'none'; return; }
+        const val = bilinearInterpolate(sd.data, gi.latIdx, gi.lonIdx, gi.latFrac, gi.lonFrac, sd.lats.length, sd.lons.length);
+        if (val == null || val < -100) { tip.style.display = 'none'; return; }
+        const f = val * 9 / 5 + 32;
+        let h = `<div style="font-weight:700;font-size:12px;color:#fff;margin-bottom:2px">`
+              + `SST ${val.toFixed(1)} °C &nbsp;(${f.toFixed(1)} °F)</div>`;
+        tip.innerHTML = h;
+      }
+
+      // ------------------------------------------------------------------
+      // ICE layer
+      // ------------------------------------------------------------------
+      else if (mode === 'ice') {
+        const id = iceRef.current;
+        if (!id || !id.data) { tip.style.display = 'none'; return; }
+        const mask = id.ocean_mask;
+        if (mask) {
+          const mLats = id.ocean_mask_lats || id.lats;
+          const mLons = id.ocean_mask_lons || id.lons;
+          const mNy = mLats.length, mNx = mLons.length;
+          const mi = Math.round(((lat - mLats[0]) / (mLats[mNy - 1] - mLats[0])) * (mNy - 1));
+          const mj = Math.round(((lon - mLons[0]) / (mLons[mNx - 1] - mLons[0])) * (mNx - 1));
+          if (mi < 0 || mi >= mNy || mj < 0 || mj >= mNx || !mask[mi]?.[mj]) {
+            tip.style.display = 'none'; return;
+          }
+        }
+        const gi = getGridIndices(lat, lon, id.lats, id.lons);
+        if (!gi) { tip.style.display = 'none'; return; }
+        const raw = bilinearInterpolate(id.data, gi.latIdx, gi.lonIdx, gi.latFrac, gi.lonFrac, id.lats.length, id.lons.length);
+        if (raw == null || raw < 0) { tip.style.display = 'none'; return; }
+        const pct = raw * 100; // CMEMS siconc is 0-1 fraction
+        if (pct < 0.5) { tip.style.display = 'none'; return; }
+        let label = 'Open water'; let color = '#38bdf8';
+        if (pct >= 90) { label = 'Fast ice'; color = '#ef4444'; }
+        else if (pct >= 70) { label = 'Close pack'; color = '#f97316'; }
+        else if (pct >= 40) { label = 'Open pack'; color = '#facc15'; }
+        else if (pct >= 10) { label = 'Scattered'; color = '#a3e635'; }
+        let h = `<div style="font-weight:700;font-size:12px;color:#fff;margin-bottom:2px">`
+              + `Ice ${pct.toFixed(0)}%</div>`;
+        h += `<div style="color:${color}">${label}</div>`;
         tip.innerHTML = h;
       }
 

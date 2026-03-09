@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import { Loader2 } from 'lucide-react';
 import { Position, WindFieldData, WaveFieldData, VelocityData, CreateZoneRequest, WaveForecastFrames, IceForecastFrames, SstForecastFrames, VisForecastFrames, AllOptimizationResults, RouteVisibility, OptimizedRouteKey, ROUTE_STYLES, GridFieldData, SwellFieldData } from '@/lib/api';
 import { sogToColor } from '@/lib/utils';
-import { DEMO_MODE, DEMO_BOUNDS } from '@/lib/demoMode';
+import { DEMO_MODE } from '@/lib/demoMode';
 
 // Dynamic imports for map components (client-side only)
 const MapContainer = dynamic(
@@ -67,6 +67,10 @@ const InitialFitBounds = dynamic(
   () => import('@/components/InitialFitBounds'),
   { ssr: false }
 );
+const MaxBoundsUpdater = dynamic(
+  () => import('@/components/InitialFitBounds').then(mod => ({ default: mod.MaxBoundsUpdater })),
+  { ssr: false }
+);
 const FitBoundsHandler = dynamic(
   () => import('@/components/FitBoundsHandler'),
   { ssr: false }
@@ -82,7 +86,8 @@ const Tooltip = dynamic(
 
 const DEFAULT_CENTER: [number, number] = [48, 5];
 const DEFAULT_ZOOM = 4;
-const INITIAL_BOUNDS: [[number, number], [number, number]] = [[25, -50], [72, 50]];
+/** Default fallback: ADRS 1+2 (NW Europe) — the default selected area. */
+const DEFAULT_BOUNDS: [[number, number], [number, number]] = [[25, -50], [72, 30]];
 
 export type WeatherLayer = 'wind' | 'waves' | 'currents' | 'ice' | 'visibility' | 'sst' | 'swell' | 'none';
 
@@ -121,6 +126,7 @@ export interface MapComponentProps {
   dataTimestamp?: string | null;
   currentForecastHour?: number;
   restoredViewport?: { bounds: { lat_min: number; lat_max: number; lon_min: number; lon_max: number }; zoom: number } | null;
+  coverageBounds?: [[number, number], [number, number]] | null;
   children?: React.ReactNode;
 }
 
@@ -159,8 +165,10 @@ export default function MapComponent({
   dataTimestamp = null,
   currentForecastHour = 0,
   restoredViewport = null,
+  coverageBounds = null,
   children,
 }: MapComponentProps) {
+  const bounds = coverageBounds ?? DEFAULT_BOUNDS;
   const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
@@ -183,7 +191,7 @@ export default function MapComponent({
         minZoom={DEMO_MODE ? 4 : 3}
         zoomSnap={0.25}
         zoomDelta={0.5}
-        maxBounds={DEMO_MODE ? DEMO_BOUNDS : [[-85, -180], [85, 180]]}
+        maxBounds={bounds}
         maxBoundsViscosity={1.0}
         worldCopyJump={!DEMO_MODE}
         style={{ height: '100%', width: '100%' }}
@@ -199,13 +207,14 @@ export default function MapComponent({
         {/* Viewport tracker */}
         {onViewportChange && <MapViewportProvider onViewportChange={onViewportChange} />}
 
-        {/* Fit initial viewport — restored viewport if available, else default */}
+        {/* Fit initial viewport — restored viewport if available, else coverage */}
         <InitialFitBounds
           bounds={restoredViewport
             ? [[restoredViewport.bounds.lat_min, restoredViewport.bounds.lon_min],
                [restoredViewport.bounds.lat_max, restoredViewport.bounds.lon_max]]
-            : INITIAL_BOUNDS}
+            : bounds}
         />
+        <MaxBoundsUpdater bounds={bounds} />
 
         {/* Fit bounds handler */}
         <FitBoundsHandler bounds={fitBoundsProp} fitKey={fitKey} />
@@ -264,15 +273,17 @@ export default function MapComponent({
         {/* GSHHS coastline overlay — crisp vector land boundaries above weather grids */}
         {weatherLayer !== 'none' && <CoastlineOverlay />}
 
-        {/* Hover tooltip for wind, waves, swell, currents, visibility layers */}
-        {(weatherLayer === 'wind' || weatherLayer === 'waves' || weatherLayer === 'swell' || weatherLayer === 'currents' || weatherLayer === 'visibility') && (
+        {/* Hover tooltip for all weather layers */}
+        {weatherLayer !== 'none' && (
           <WaveInfoPopup
-            layer={weatherLayer as 'wind' | 'waves' | 'swell' | 'currents' | 'visibility'}
+            layer={weatherLayer as any}
             waveData={weatherLayer === 'waves' ? waveData : null}
             windData={windData}
             swellData={weatherLayer === 'swell' ? extendedWeatherData as any : null}
             currentVelocityData={currentVelocityData}
             visibilityData={weatherLayer === 'visibility' ? extendedWeatherData as any : null}
+            sstData={weatherLayer === 'sst' ? extendedWeatherData as any : null}
+            iceData={weatherLayer === 'ice' ? extendedWeatherData as any : null}
           />
         )}
 

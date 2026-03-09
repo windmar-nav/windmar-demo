@@ -186,9 +186,6 @@ function WeatherCanvasOverlayInner({
   const lutRef = useRef<Uint8Array | null>(null);
   const lutKeyRef = useRef('');
 
-  const isExtended = mode === 'ice' || mode === 'visibility' || mode === 'sst' || mode === 'swell';
-  const activeData = isExtended ? extendedData : (mode === 'wind' ? windData : waveData);
-
   // ── Canvas lifecycle: custom Leaflet pane for correct z-ordering ──
   // Canvas must be inside the map pane's stacking context (above tiles,
   // below arrows/overlays).  containerPointToLayerPoint compensates for
@@ -231,7 +228,11 @@ function WeatherCanvasOverlayInner({
   const render = useCallback(() => {
     const canvas = canvasRef.current;
     const buffer = bufferRef.current;
-    if (!canvas || !buffer || !activeData) return;
+    if (!canvas || !buffer) return;
+
+    const isExtended = mode === 'ice' || mode === 'visibility' || mode === 'sst' || mode === 'swell';
+    const data = isExtended ? extendedData : (mode === 'wind' ? windData : waveData);
+    if (!data) return;
 
     const size = map.getSize();
     const cw: number = size.x;
@@ -239,8 +240,8 @@ function WeatherCanvasOverlayInner({
     if (cw === 0 || ch === 0) return;
 
     // Adaptive scale: match canvas resolution to data density
-    const lats = activeData.lats;
-    const lons = activeData.lons;
+    const lats = data.lats;
+    const lons = data.lons;
     const dataMax = Math.max(lats.length, lons.length);
     const viewMax = Math.max(cw, ch);
     const scale = Math.min(1.0, Math.max(0.35, dataMax / viewMax));
@@ -315,9 +316,9 @@ function WeatherCanvasOverlayInner({
     }
 
     // ── Ocean mask for land masking (scalar fields: ice, SST, vis, swell) ──
-    const mask = (activeData as any)?.ocean_mask as boolean[][] | undefined;
-    const maskLats = (activeData as any)?.ocean_mask_lats as number[] | undefined;
-    const maskLons = (activeData as any)?.ocean_mask_lons as number[] | undefined;
+    const mask = (data as any)?.ocean_mask as boolean[][] | undefined;
+    const maskLats = (data as any)?.ocean_mask_lats as number[] | undefined;
+    const maskLons = (data as any)?.ocean_mask_lons as number[] | undefined;
     const hasMask = !!(mask && maskLats && maskLons && maskLats.length >= 2 && maskLons.length >= 2);
     const mLatStart = hasMask ? maskLats![0] : 0;
     const mLatRange = hasMask ? maskLats![maskLats!.length - 1] - mLatStart : 1;
@@ -409,12 +410,13 @@ function WeatherCanvasOverlayInner({
     canvas.style.transform = `translate(${topLeft.x}px, ${topLeft.y}px)`;
     canvas.style.width = cw + 'px';
     canvas.style.height = ch + 'px';
+    canvas.style.opacity = String(opacity);
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     ctx.clearRect(0, 0, w, h);
     ctx.drawImage(buffer, 0, 0);
-  }, [map, mode, activeData, windData, waveData, extendedData, isExtended, opacity]);
+  }, [map, mode, windData, waveData, extendedData, opacity]);
 
   // ── Data/mode change: render synchronously (no rAF delay) ────────
 

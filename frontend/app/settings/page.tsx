@@ -105,7 +105,7 @@ export default function SettingsPage() {
             </div>
           </section>
 
-          {/* ── Ocean Area (ADRS Volume 6) ── */}
+          {/* ── Ocean Area ── */}
           <section className="bg-white/5 rounded-lg p-8">
             <div className="flex items-center space-x-2 mb-4">
               <Globe className="w-5 h-5 text-primary-400" />
@@ -113,7 +113,7 @@ export default function SettingsPage() {
             </div>
 
             <div className="space-y-2 mb-4">
-              <label className="block text-sm text-gray-300 mb-2">ADRS Volume 6 coverage areas</label>
+              <label className="block text-sm text-gray-300 mb-2">Select coverage areas for weather data</label>
               {readiness.availableAreas.map((area: ADRSAreaInfo) => {
                 const isSelected = selectedAreas.includes(area.id);
                 const areaData = readiness.areas[area.id];

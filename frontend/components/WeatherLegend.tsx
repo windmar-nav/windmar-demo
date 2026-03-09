@@ -32,13 +32,14 @@ const CURRENT_STOPS = [
   { value: 2.0, color: 'rgb(250,140,40)' },
 ];
 
+/** Ice legend: data is 0-1 fraction, labels display as % */
 const ICE_STOPS = [
   { value: 0, color: 'rgb(0,100,255)' },
-  { value: 10, color: 'rgb(150,200,255)' },
-  { value: 30, color: 'rgb(140,255,160)' },
-  { value: 60, color: 'rgb(255,255,0)' },
-  { value: 80, color: 'rgb(255,125,7)' },
-  { value: 100, color: 'rgb(255,0,0)' },
+  { value: 0.1, color: 'rgb(150,200,255)' },
+  { value: 0.3, color: 'rgb(140,255,160)' },
+  { value: 0.6, color: 'rgb(255,255,0)' },
+  { value: 0.8, color: 'rgb(255,125,7)' },
+  { value: 1, color: 'rgb(255,0,0)' },
 ];
 
 const VIS_STOPS = [
@@ -93,13 +94,15 @@ export default function WeatherLegend({ mode, timelineVisible = false, dataRange
   const { stops, unit, label } = config;
   const gradient = buildGradient(stops);
 
-  // SST auto-range: remap stop labels to actual data bounds
+  // Display value mapping: SST auto-ranges to data bounds, ice shows as %
   const displayStops = (mode === 'sst' && dataRange && dataRange.max > dataRange.min)
     ? stops.map(s => {
         const t = (s.value - stops[0].value) / (stops[stops.length - 1].value - stops[0].value);
         return { ...s, displayValue: Math.round((dataRange.min + t * (dataRange.max - dataRange.min)) * 10) / 10 };
       })
-    : stops.map(s => ({ ...s, displayValue: s.value }));
+    : mode === 'ice'
+      ? stops.map(s => ({ ...s, displayValue: Math.round(s.value * 100) }))
+      : stops.map(s => ({ ...s, displayValue: s.value }));
 
   return (
     <div className={`absolute right-4 bg-maritime-dark/90 backdrop-blur-sm rounded-lg p-3 z-[1000] min-w-[180px] transition-all ${timelineVisible ? 'bottom-20' : 'bottom-4'}`}>
