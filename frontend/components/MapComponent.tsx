@@ -186,13 +186,6 @@ export default function MapComponent({
         maxBounds={DEMO_MODE ? DEMO_BOUNDS : [[-85, -180], [85, 180]]}
         maxBoundsViscosity={1.0}
         worldCopyJump={!DEMO_MODE}
-        dragging={!DEMO_MODE}
-        zoomControl={!DEMO_MODE}
-        scrollWheelZoom={!DEMO_MODE}
-        doubleClickZoom={!DEMO_MODE}
-        touchZoom={!DEMO_MODE}
-        boxZoom={!DEMO_MODE}
-        keyboard={!DEMO_MODE}
         style={{ height: '100%', width: '100%' }}
         className="rounded-lg"
         wheelPxPerZoomLevel={120}

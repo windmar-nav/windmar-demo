@@ -39,9 +39,10 @@ jobs:
           context: ./frontend
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-frontend:demo
-          build-args: "NEXT_PUBLIC_API_URL=${{ secrets.DEMO_API_URL }}\nNEXT_PUBLIC_DEMO_MODE=true"
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ secrets.DEMO_API_URL }}
+            NEXT_PUBLIC_DEMO_MODE=true
+          no-cache: true
 
   deploy:
     needs: build
