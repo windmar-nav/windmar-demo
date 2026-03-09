@@ -1309,14 +1309,34 @@ async def api_get_weather_field(
                     frame = frames[frame_key]
                     run_time_str = envelope.get("run_time", "")
                     response = {
-                        "parameter": cfg.parameters[0] if cfg.components == "scalar" else cfg.name,
+                        "parameter": (
+                            cfg.parameters[0]
+                            if cfg.components == "scalar"
+                            else cfg.name
+                        ),
                         "field": field,
                         "time": time.isoformat(),
                         "bbox": {
-                            "lat_min": float(envelope["lats"][0]) if envelope.get("lats") else lat_min,
-                            "lat_max": float(envelope["lats"][-1]) if envelope.get("lats") else lat_max,
-                            "lon_min": float(envelope["lons"][0]) if envelope.get("lons") else lon_min,
-                            "lon_max": float(envelope["lons"][-1]) if envelope.get("lons") else lon_max,
+                            "lat_min": (
+                                float(envelope["lats"][0])
+                                if envelope.get("lats")
+                                else lat_min
+                            ),
+                            "lat_max": (
+                                float(envelope["lats"][-1])
+                                if envelope.get("lats")
+                                else lat_max
+                            ),
+                            "lon_min": (
+                                float(envelope["lons"][0])
+                                if envelope.get("lons")
+                                else lon_min
+                            ),
+                            "lon_max": (
+                                float(envelope["lons"][-1])
+                                if envelope.get("lons")
+                                else lon_max
+                            ),
                         },
                         "resolution": resolution,
                         "nx": envelope.get("nx", 0),
@@ -1331,19 +1351,29 @@ async def api_get_weather_field(
                         if key in frame:
                             response[key] = frame[key]
                     if cfg.components == "wave_decomp":
-                        response["has_decomposition"] = "windwave" in frame and "swell" in frame
+                        response["has_decomposition"] = (
+                            "windwave" in frame and "swell" in frame
+                        )
                     if envelope.get("ocean_mask") is not None:
                         response["ocean_mask"] = envelope["ocean_mask"]
-                        response["ocean_mask_lats"] = envelope.get("ocean_mask_lats", [])
-                        response["ocean_mask_lons"] = envelope.get("ocean_mask_lons", [])
+                        response["ocean_mask_lats"] = envelope.get(
+                            "ocean_mask_lats", []
+                        )
+                        response["ocean_mask_lons"] = envelope.get(
+                            "ocean_mask_lons", []
+                        )
                     if envelope.get("colorscale") is not None:
                         response["colorscale"] = envelope["colorscale"]
                     if run_time_str:
                         response["ingested_at"] = run_time_str
-                    logger.info(f"{field} single-frame: served from file cache (frame {frame_key})")
+                    logger.info(
+                        f"{field} single-frame: served from file cache (frame {frame_key})"
+                    )
                     return response
             except Exception:
-                logger.warning(f"{field} single-frame: cache file parse failed", exc_info=True)
+                logger.warning(
+                    f"{field} single-frame: cache file parse failed", exc_info=True
+                )
 
     if data is None or not hasattr(data, "lats") or data.lats is None:
         raise HTTPException(

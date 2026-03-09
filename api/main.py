@@ -489,9 +489,7 @@ def _prefetch_all_weather():
         # global default_bbox keeps the download small.
         gfs_bbox = union or (-85.0, 85.0, -179.75, 179.75)
         for field_name in GLOBAL_FIELDS:
-            work_items.append(
-                (field_name, gfs_bbox, f"{field_name}:default", False)
-            )
+            work_items.append((field_name, gfs_bbox, f"{field_name}:default", False))
 
         # CMEMS fields — rebuild from DB snapshot only (no live CMEMS
         # download).  Cache at the union bbox so the single-frame
@@ -508,9 +506,7 @@ def _prefetch_all_weather():
                     )
                 continue
             if union is not None:
-                work_items.append(
-                    (field_name, union, f"{field_name}:union", True)
-                )
+                work_items.append((field_name, union, f"{field_name}:union", True))
 
         # max_workers=1 keeps peak memory under the 2GB container limit
         # (wave cache alone can use ~1.5GB when decompressing 328 grids).
