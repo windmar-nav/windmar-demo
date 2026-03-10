@@ -58,6 +58,7 @@ async def lifespan(application: FastAPI):
     _run_weather_migrations()
     _run_voyage_migrations()
     _run_engine_log_seed()
+    _run_noon_report_seed()
 
     # Ensure cache dirs exist (volume mounts may lack subdirectories)
     for sub in ("wind", "wave", "current", "ice", "sst", "vis"):
@@ -370,6 +371,57 @@ def _run_engine_log_seed():
             conn.close()
     except Exception as e:
         logger.warning("Engine log seed failed (non-fatal): %s", e)
+
+
+def _run_noon_report_seed():
+    """Seed noon report demo data if the demo vessel is not yet loaded."""
+    db_url = os.environ.get("DATABASE_URL", settings.database_url)
+    if not db_url.startswith("postgresql"):
+        return
+    try:
+        import psycopg2
+    except ImportError:
+        return
+
+    seed_path = Path(__file__).parent.parent / "data" / "demo-noon-report-seed.sql"
+    if not seed_path.exists():
+        logger.info("Noon report seed file not found, skipping")
+        return
+
+    try:
+        conn = psycopg2.connect(db_url)
+        conn.autocommit = True
+        cur = conn.cursor()
+
+        cur.execute("SELECT pg_try_advisory_lock(20260310)")
+        if not cur.fetchone()[0]:
+            logger.info("Another worker is running noon report seed, skipping")
+            conn.close()
+            return
+
+        try:
+            try:
+                cur.execute(
+                    "SELECT COUNT(*) FROM noon_reports "
+                    "WHERE vessel_id = '00000000-0000-0000-0000-de0000000001'"
+                )
+                count = cur.fetchone()[0]
+                if count > 0:
+                    logger.info(
+                        "Noon report demo data already loaded (%d reports)", count
+                    )
+                    return
+            except Exception:
+                conn.rollback()
+
+            sql = seed_path.read_text()
+            cur.execute(sql)
+            logger.info("Noon report demo data seeded from %s", seed_path.name)
+        finally:
+            cur.execute("SELECT pg_advisory_unlock(20260310)")
+            conn.close()
+    except Exception as e:
+        logger.warning("Noon report seed failed (non-fatal): %s", e)
 
 
 # =============================================================================

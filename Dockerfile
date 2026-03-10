@@ -79,6 +79,9 @@ COPY --from=builder /build/deps /app/deps
 COPY --chown=windmar:windmar src/ ./src/
 COPY --chown=windmar:windmar api/ ./api/
 COPY --chown=windmar:windmar docker/migrations/ ./docker/migrations/
+COPY --chown=windmar:windmar data/demo-engine-log-seed.sql ./data/
+COPY --chown=windmar:windmar data/demo-noon-report-seed.sql ./data/
+COPY --chown=windmar:windmar data/templates/ ./data/templates/
 COPY --chown=windmar:windmar LICENSE ./
 
 # Pre-download GSHHS shapefiles so first request doesn't incur 70MB download

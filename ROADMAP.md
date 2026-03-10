@@ -19,14 +19,6 @@
 | **Waitlist** | Email capture form on slmar.co |
 | **Target hardware** | Dedicated Linux box alongside other shipboard ops automation tools |
 
-### Demo (demo-windmar.slmar.co)
-
-Same codebase as full application, with restrictions:
-- **Fixed coverage**: NE Atlantic + Mediterranean basin only
-- **Ship performance**: Pre-loaded sample Excel, persistent on server
-- **No upload / no download**
-- **No user accounts**
-
 ### Platform Layer (slmar.co/windmar)
 
 Research-oriented: engineers and researchers can upload specs, models, and optimization engines. The platform is for exchange and collaboration — the product is local-first.

@@ -14,6 +14,7 @@ from typing import List, Optional
 
 import numpy as np
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse
 
 from api.auth import get_api_key
 from api.database import get_db_context
@@ -243,6 +244,24 @@ async def set_calibration_factors(
     )
 
     return {"status": "success", "message": "Calibration factors updated"}
+
+
+# ============================================================================
+# Noon Report Template
+# ============================================================================
+
+
+@router.get("/noon-reports/template")
+async def download_noon_report_template():
+    """Download an Excel template for noon report uploads."""
+    template_path = Path(__file__).parent.parent.parent / "data" / "templates" / "noon_report_template.xlsx"
+    if not template_path.exists():
+        raise HTTPException(status_code=404, detail="Template file not found")
+    return FileResponse(
+        path=str(template_path),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename="noon_report_template.xlsx",
+    )
 
 
 # ============================================================================

@@ -1,10 +1,90 @@
 # WINDMAR - Weather Routing & Performance Analytics
 
-> **Note**: This is the open-source reference release (v0.1.4). It is a fully functional self-hosted tool — not a SaaS product. You bring your own weather credentials, your own noon reports, and run it locally or on your own server. Do not use for actual voyage planning or navigation.
+> **Note**: This is the open-source reference release (v0.1.5). It is a fully functional self-hosted tool — not a SaaS product. You bring your own weather credentials, your own noon reports, and run it locally or on your own server. Do not use for actual voyage planning or navigation.
 
 A weather routing and performance analytics platform for merchant ships. Optimizes fuel consumption through weather-aware A\* and Dijkstra routing, physics-based vessel modeling, engine log analytics, and real-time sensor fusion. Ships with a default MR Product Tanker configuration; all vessel parameters are fully configurable.
 
 **Documentation**: [windmar-nav.github.io](https://windmar-nav.github.io)
+
+## Try It Locally
+
+Run Windmar on your machine in under 2 minutes. No `git clone`, no build step, no credentials required.
+
+### Prerequisites
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows, Mac, or Linux)
+
+### Steps
+
+1. Download two files from this repo into the same folder:
+   - [`docker-compose.standalone.yml`](docker-compose.standalone.yml)
+   - [`.env.standalone`](/.env.standalone) — rename to `.env`
+
+2. Start everything:
+   ```bash
+   docker compose -f docker-compose.standalone.yml up -d
+   ```
+
+3. Open your browser:
+
+   | Service | URL |
+   |---------|-----|
+   | Frontend | http://localhost:3000 |
+   | API | http://localhost:8000 |
+   | API Docs | http://localhost:8000/api/docs |
+
+The system ships with demo engine log data and noon reports pre-loaded. Wind data (GFS) loads automatically on first start — no credentials needed.
+
+### Upload Your Own Data
+
+Download the noon report Excel template and fill in your operational data:
+
+```bash
+curl -O http://localhost:8000/api/vessel/noon-reports/template
+```
+
+Or open `http://localhost:8000/api/vessel/noon-reports/template` in your browser. Upload via the Vessel page in the UI, or:
+
+```bash
+curl -X POST http://localhost:8000/api/vessel/noon-reports/upload-excel \
+  -F file=@your_noon_reports.xlsx
+```
+
+### Weather Credentials
+
+**Wind data works immediately** — no sign-up needed. GFS wind fields are downloaded from NOAA automatically on startup.
+
+**Wave, current, SST, and ice data** require a free Copernicus Marine account:
+
+1. Go to [marine.copernicus.eu](https://marine.copernicus.eu/) and click **Register**
+2. Fill in the form (name, email, password) — approval is instant
+3. Open your `.env` file and uncomment + fill in your credentials:
+   ```
+   COPERNICUSMARINE_SERVICE_USERNAME=your_email@example.com
+   COPERNICUSMARINE_SERVICE_PASSWORD=your_password
+   ```
+4. Restart: `docker compose -f docker-compose.standalone.yml restart api`
+
+Without CMEMS credentials everything still works — wave and current overlays will show synthetic placeholder data instead of live observations.
+
+### Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| Port 3000 or 8000 in use | Change ports in `.env`: add `API_PORT=8001` and update `CORS_ORIGINS` |
+| API not ready yet | First startup takes ~60s (database migrations + weather download). Check `docker logs windmar-api` |
+| No wave/current data | Expected without CMEMS credentials. Wind visualization works without any credentials |
+| Container won't start | Run `docker compose -f docker-compose.standalone.yml logs` to see errors |
+
+### Stop & Reset
+
+```bash
+# Stop
+docker compose -f docker-compose.standalone.yml down
+
+# Stop and delete all data (fresh start)
+docker compose -f docker-compose.standalone.yml down -v
+```
 
 ## Features
 
@@ -98,7 +178,7 @@ A weather routing and performance analytics platform for merchant ships. Optimiz
 - Charter party weather clause analysis
 - Dark maritime theme, responsive design
 
-## Limitations (v0.1.4)
+## Limitations (v0.1.5)
 
 This release uses **GFS forecast data only** (5-day horizon, 3-hourly steps). There is no ERA5 reanalysis ingestion — if GFS data is unavailable, the system falls back to synthetic data for wind.
 
@@ -412,6 +492,7 @@ Column names are auto-detected — `lat`/`latitude`, `lon`/`longitude`, `speed`/
 - `POST /api/vessel/noon-reports` - Add a single noon report
 - `POST /api/vessel/noon-reports/upload-csv` - Upload operational data (CSV)
 - `POST /api/vessel/noon-reports/upload-excel` - Upload operational data (Excel .xlsx/.xls)
+- `GET /api/vessel/noon-reports/template` - Download noon report Excel template
 - `DELETE /api/vessel/noon-reports` - Clear all noon reports
 
 ### Engine Log
@@ -490,6 +571,19 @@ The system ships with a default MR Product Tanker configuration (all values conf
 | Lateral area (laden / ballast) | 2,100 / 2,800 m2 |
 
 ## Changelog
+
+### v0.1.5 — Standalone Docker Distribution
+
+**Local-first distribution** — run Windmar from pre-built Docker images with no build step, no git clone, and no credentials required for wind data.
+
+- **Standalone Docker Compose** — `docker-compose.standalone.yml` pulls from GHCR, starts 4 services (PostgreSQL, Redis, API, Frontend) with a single command
+- **Pre-filled `.env.standalone`** — ready to use with step-by-step CMEMS credential instructions in comments
+- **Noon report seed data** — 30 synthetic noon reports (Rotterdam → Med route, Jul-Aug 2025) auto-loaded on startup
+- **Noon report Excel template** — downloadable via `GET /api/vessel/noon-reports/template` with column guide sheet
+- **`:latest` Docker tags** — CI now publishes `:latest` alongside `:main` for both API and Frontend images
+- **Demo VPS removed** — no hosted demo; the standalone distribution is the only way to try Windmar
+- Removed `Caddyfile` and `docker-compose.demo.yml`
+- README rewritten with "Try It Locally" quick-start section and credential setup guide
 
 ### v0.1.4 — Public Reference Release
 

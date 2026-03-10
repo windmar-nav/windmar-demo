@@ -10,7 +10,7 @@ Usage:
     pytest tests/integration/test_weather_preflight.py -v
 
     # Against a custom host
-    WINDMAR_API_URL=https://demo-windmar.slmar.co \
+    WINDMAR_API_URL=http://localhost:8000 \
         pytest tests/integration/test_weather_preflight.py -v
 
     # Standalone (no pytest)

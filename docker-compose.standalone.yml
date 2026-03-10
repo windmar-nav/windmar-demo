@@ -1,0 +1,96 @@
+# =============================================================================
+# WINDMAR Standalone Docker Compose
+# =============================================================================
+# Pulls pre-built images from GHCR. No git clone or build step required.
+#
+# Usage:
+#   1. Download this file and .env.standalone
+#   2. Rename .env.standalone to .env
+#   3. docker compose -f docker-compose.standalone.yml up -d
+#   4. Open http://localhost:3000
+# =============================================================================
+
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: windmar-db
+    environment:
+      POSTGRES_USER: ${DB_USER:-windmar}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-windmar-local-2025}
+      POSTGRES_DB: ${DB_NAME:-windmar}
+    volumes:
+      - windmar_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-windmar}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: windmar-redis
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-windmar-redis-local}
+    volumes:
+      - windmar_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  api:
+    image: ghcr.io/windmar-nav/windmar/api:latest
+    container_name: windmar-api
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-windmar}:${DB_PASSWORD:-windmar-local-2025}@db:5432/${DB_NAME:-windmar}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-windmar-redis-local}@redis:6379/0
+      API_SECRET_KEY: ${API_SECRET_KEY:-standalone-local-key-not-for-production}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      AUTH_ENABLED: ${AUTH_ENABLED:-false}
+      DEMO_MODE: ${DEMO_MODE:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      COPERNICUS_MOCK_MODE: ${COPERNICUS_MOCK_MODE:-false}
+      COPERNICUSMARINE_SERVICE_USERNAME: ${COPERNICUSMARINE_SERVICE_USERNAME:-}
+      COPERNICUSMARINE_SERVICE_PASSWORD: ${COPERNICUSMARINE_SERVICE_PASSWORD:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  frontend:
+    image: ghcr.io/windmar-nav/windmar/frontend:latest
+    container_name: windmar-frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://0.0.0.0:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+volumes:
+  windmar_pg_data:
+    driver: local
+  windmar_redis_data:
+    driver: local
