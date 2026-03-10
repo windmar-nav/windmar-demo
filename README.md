@@ -16,9 +16,12 @@ Run Windmar on your machine in under 2 minutes. No `git clone`, no build step, n
 
 ### Steps
 
-1. Download two files from this repo into the same folder:
-   - [`docker-compose.standalone.yml`](docker-compose.standalone.yml)
-   - [`.env.standalone`](/.env.standalone) — rename to `.env`
+1. Download two files into the same folder:
+   ```bash
+   mkdir windmar && cd windmar
+   curl -LO https://raw.githubusercontent.com/windmar-nav/windmar/main/docker-compose.standalone.yml
+   curl -L -o .env https://raw.githubusercontent.com/windmar-nav/windmar/main/.env.standalone
+   ```
 
 2. Start everything:
    ```bash
