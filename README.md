@@ -1,10 +1,10 @@
 # WINDMAR - Weather Routing & Performance Analytics
 
-> **Warning**: This project is under active development and is **not production-ready**. It is being built in public as a learning and portfolio project. APIs, data models, and features may change without notice. Do not use for actual voyage planning or navigation.
+> **Note**: This is the open-source reference release (v0.1.4). It is a fully functional self-hosted tool — not a SaaS product. You bring your own weather credentials, your own noon reports, and run it locally or on your own server. Do not use for actual voyage planning or navigation.
 
 A weather routing and performance analytics platform for merchant ships. Optimizes fuel consumption through weather-aware A\* and Dijkstra routing, physics-based vessel modeling, engine log analytics, and real-time sensor fusion. Ships with a default MR Product Tanker configuration; all vessel parameters are fully configurable.
 
-**Live demo**: Coming in March 2026 | **Documentation**: [windmar-nav.github.io](https://windmar-nav.github.io)
+**Documentation**: [windmar-nav.github.io](https://windmar-nav.github.io)
 
 ## Features
 
@@ -46,7 +46,6 @@ A weather routing and performance analytics platform for merchant ships. Optimiz
 - NOAA GFS (0.25 deg) for near-real-time wind fields via NOMADS GRIB filter
 - 5-day wind forecast timeline (f000-f120, 3-hourly steps) with Windy-style animation
 - Copernicus Marine Service (CMEMS) for wave and ocean current data
-- ERA5 reanalysis as secondary wind fallback (~5-day lag)
 - Climatology fallback for beyond-forecast-horizon voyages
 - Unified provider that blends forecast and climatology with smooth transitions
 - **Pre-ingested weather database** — grids compressed (zlib/float32) in PostgreSQL, served in milliseconds
@@ -98,6 +97,21 @@ A weather routing and performance analytics platform for merchant ships. Optimiz
 - FuelEU Maritime compliance page (4 tabs)
 - Charter party weather clause analysis
 - Dark maritime theme, responsive design
+
+## Limitations (v0.1.4)
+
+This release uses **GFS forecast data only** (5-day horizon, 3-hourly steps). There is no ERA5 reanalysis ingestion — if GFS data is unavailable, the system falls back to synthetic data for wind.
+
+| Constraint | Detail |
+|------------|--------|
+| **Forecast horizon** | 5 days (GFS f000-f120). No historical reanalysis. |
+| **Wind source** | NOAA GFS (0.25 deg). Free, no credentials needed. |
+| **Wave / current source** | CMEMS. Requires a free Copernicus Marine account. |
+| **ERA5** | Not included in this release. CDS credentials are accepted but ERA5 ingestion is not active. |
+| **Coverage** | North Atlantic / NW Europe (ADRS 1+2). Configurable via area selection. |
+| **Data refresh** | Manual — user triggers resync per layer. No background scheduler. |
+
+For voyages beyond the 5-day forecast window, the system uses climatological fallback values (monthly averages).
 
 ## Screenshots
 
@@ -287,36 +301,61 @@ Copy `.env.example` to `.env` and configure:
 
 Windmar uses a three-tier provider chain that automatically falls back when a source is unavailable:
 
-| Data Type | Primary Source | Fallback | Credentials Required |
-|-----------|---------------|----------|---------------------|
-| **Wind** | NOAA GFS (0.25 deg, ~3.5h lag) | ERA5 reanalysis, Synthetic | None (GFS is free) |
-| **Waves** | CMEMS global wave model | Synthetic | CMEMS account |
-| **Currents** | CMEMS global physics model | Synthetic | CMEMS account |
+| Data Type | Source | Fallback | Credentials |
+|-----------|--------|----------|-------------|
+| **Wind** | NOAA GFS (0.25 deg, ~3.5h lag) | Synthetic | None (free) |
+| **Waves** | CMEMS global wave model | Synthetic | CMEMS account (free) |
+| **Currents** | CMEMS global physics model | Synthetic | CMEMS account (free) |
+| **SST / Ice** | CMEMS | — | CMEMS account (free) |
 | **Forecast** | GFS f000-f120 (5-day, 3h steps) | — | None |
 
 **Wind data works out of the box** — GFS is fetched from NOAA NOMADS without authentication. For wave and current data, you need Copernicus Marine credentials.
 
 ### Obtaining Weather Credentials
 
-**CMEMS (waves and currents):**
-1. Register at [marine.copernicus.eu](https://marine.copernicus.eu/)
+**GFS wind data** requires no credentials — it is downloaded from NOAA NOMADS automatically.
+
+**CMEMS (waves, currents, SST, ice):**
+1. Register for a free account at [marine.copernicus.eu](https://marine.copernicus.eu/)
 2. Set in `.env`:
    ```
    COPERNICUSMARINE_SERVICE_USERNAME=your_username
    COPERNICUSMARINE_SERVICE_PASSWORD=your_password
    ```
 
-**CDS ERA5 (wind fallback):**
-1. Register at [cds.climate.copernicus.eu](https://cds.climate.copernicus.eu/)
-2. Copy your Personal Access Token from your profile page
-3. Set in `.env`:
-   ```
-   CDSAPI_KEY=your_personal_access_token
-   ```
-
-Without these credentials, the system falls back to synthetic data automatically for waves and currents. Wind visualization always works via GFS.
+Without CMEMS credentials, the system falls back to synthetic data for waves and currents. Wind visualization always works via GFS.
 
 See `WEATHER_PIPELINE.md` for full technical details on data acquisition, GRIB processing, and the forecast timeline.
+
+### Noon Report Ingestion
+
+Noon reports are used to calibrate the vessel performance model against real operational data. Upload via CSV, Excel, or the JSON API.
+
+**Required fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `timestamp` | datetime | Report time (ISO 8601 or common date formats) |
+| `latitude` | float | Position latitude (-90 to +90) |
+| `longitude` | float | Position longitude (-180 to +180) |
+| `speed_over_ground_kts` | float | Speed over ground in knots |
+| `fuel_consumption_mt` | float | Fuel consumed in metric tons |
+
+**Optional fields:** `speed_through_water_kts`, `period_hours` (default 24), `is_laden` (default true), `heading_deg`, `wind_speed_kts`, `wind_direction_deg`, `wave_height_m`, `wave_direction_deg`, `engine_power_kw`.
+
+**CSV example:**
+
+```csv
+timestamp,latitude,longitude,speed_over_ground_kts,fuel_consumption_mt,is_laden
+2025-01-15 12:00,48.5,-5.2,13.2,28.5,true
+2025-01-16 12:00,43.8,-9.1,12.8,27.1,true
+2025-01-17 12:00,38.2,-9.8,13.5,29.2,true
+```
+
+Column names are auto-detected — `lat`/`latitude`, `lon`/`longitude`, `speed`/`sog`, etc. all work. Upload via:
+- **API**: `POST /api/vessel/noon-reports/upload-csv` (multipart file)
+- **API**: `POST /api/vessel/noon-reports/upload-excel` (multipart file)
+- **UI**: Vessel page > Noon Reports tab > Upload
 
 ## API Endpoints
 
@@ -451,6 +490,15 @@ The system ships with a default MR Product Tanker configuration (all values conf
 | Lateral area (laden / ballast) | 2,100 / 2,800 m2 |
 
 ## Changelog
+
+### v0.1.4 — Public Reference Release
+
+**Open-source release** — self-hosted weather routing tool with 5-day GFS forecast, CMEMS wave/current data, and vessel performance calibration from noon reports.
+
+- Viewport persistence versioning — stale session bounds discarded on upgrade
+- Demo bounds aligned to actual weather coverage (ADRS 1+2)
+- README rewritten with credential setup, noon report ingestion format, and known limitations
+- Version bumped across backend and frontend
 
 ### v0.1.2 — Settings Page, Variable Speed & Session Persistence
 

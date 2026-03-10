@@ -27,7 +27,11 @@ function useSessionState<T>(key: string, fallback: T): [T, (v: T | ((prev: T) =>
 
 type WeatherLayerType = 'wind' | 'waves' | 'currents' | 'ice' | 'visibility' | 'sst' | 'swell' | 'none';
 
+/** Bump this when DEFAULT_BOUNDS or coverage logic changes to discard stale saved viewports. */
+const VIEWPORT_VERSION = 2;
+
 interface ViewportState {
+  version: number;
   bounds: { lat_min: number; lat_max: number; lon_min: number; lon_max: number };
   zoom: number;
 }
@@ -71,7 +75,7 @@ interface VoyageContextValue {
 
   // Viewport persistence
   lastViewport: ViewportState | null;
-  setLastViewport: (v: ViewportState) => void;
+  setLastViewport: (v: Omit<ViewportState, 'version'>) => void;
 
   // Optimization settings (persisted across navigation)
   gridResolution: number;
@@ -107,7 +111,12 @@ export function VoyageProvider({ children }: { children: ReactNode }) {
   const [isLaden, setIsLaden] = useSessionState('wm:isLaden', true);
   const [useWeather, setUseWeather] = useSessionState('wm:useWeather', true);
   const [weatherLayer, setWeatherLayer] = useSessionState<WeatherLayerType>('wm:weatherLayer', 'none');
-  const [lastViewport, setLastViewport] = useSessionState<ViewportState | null>('wm:lastViewport', null);
+  const [lastViewport, setLastViewportRaw] = useSessionState<ViewportState | null>('wm:lastViewport', null);
+  // Discard stale viewports from previous versions
+  const validViewport = (lastViewport?.version === VIEWPORT_VERSION) ? lastViewport : null;
+  const setLastViewport = useCallback((vp: Omit<ViewportState, 'version'>) => {
+    setLastViewportRaw({ ...vp, version: VIEWPORT_VERSION });
+  }, [setLastViewportRaw]);
 
   // Optimization settings
   const [gridResolution, setGridResolution] = useSessionState('wm:gridRes', 0.2);
@@ -175,7 +184,7 @@ export function VoyageProvider({ children }: { children: ReactNode }) {
         zoneVisibility, setZoneTypeVisible,
         isDrawingZone, setIsDrawingZone,
         weatherLayer, setWeatherLayer,
-        lastViewport, setLastViewport,
+        lastViewport: validViewport, setLastViewport,
         gridResolution, setGridResolution,
         variableResolution, setVariableResolution,
         paretoEnabled, setParetoEnabled,
