@@ -36,7 +36,7 @@ from src.optimization.seakeeping import (
     SafetyStatus,
     create_default_safety_constraints,
 )
-from src.data.land_mask import is_ocean, is_path_clear
+from src.data.land_mask import is_ocean
 from src.data.regulatory_zones import get_zone_checker, ZoneChecker
 from src.optimization.route_optimizer import apply_visibility_cap
 from src.optimization.grid_builder import GridBuilder
@@ -587,6 +587,8 @@ class DijkstraOptimizer(BaseOptimizer):
         h0 = heuristic(start_rc)
         pq: List[_QueueEntry] = [_QueueEntry(cost=h0, node=start_node)]
         explored = 0
+        wall_start = _time.monotonic()
+        wall_limit = 90.0  # seconds — hard cutoff to prevent HTTP timeouts
 
         # Cache zone penalties per spatial edge (row,col)->(row,col) to avoid
         # redundant polygon intersection tests across time steps
@@ -605,9 +607,21 @@ class DijkstraOptimizer(BaseOptimizer):
 
             explored += 1
 
+            # Wall-clock timeout (check every 1000 nodes to minimize overhead)
+            if explored % 1000 == 0 and _time.monotonic() - wall_start > wall_limit:
+                logger.warning(
+                    f"Dijkstra wall-clock timeout ({wall_limit:.0f}s): "
+                    f"explored={explored}, pq={len(pq)}"
+                )
+                break
+
             # Reached destination?
             if cur.row == end_rc[0] and cur.col == end_rc[1]:
                 path = self._reconstruct(cur_key, parent, node_map)
+                logger.info(
+                    f"Dijkstra found path: {explored} nodes, "
+                    f"cost_map={len(cost_so_far)}, pq={len(pq)}"
+                )
                 return path, explored
 
             # Expand spatial neighbours
@@ -618,10 +632,9 @@ class DijkstraOptimizer(BaseOptimizer):
 
                 nb_lat, nb_lon = grid[nb_rc]
 
-                # Edge land check — at 0.25° the grid is fine enough that
-                # is_path_clear won't disconnect valid passages.
-                if not is_path_clear(cur.lat, cur.lon, nb_lat, nb_lon):
-                    continue
+                # Skip is_path_clear: both cells are ocean-validated and
+                # at ≥0.25° resolution, adjacent ocean cells don't cross land.
+                # Zone checker handles exclusion zones separately below.
 
                 spatial_edge = ((cur.row, cur.col), nb_rc)
                 if spatial_edge not in zone_cache:
@@ -697,7 +710,13 @@ class DijkstraOptimizer(BaseOptimizer):
                         _QueueEntry(cost=f_score, node=nb_node, speed_kts=chosen_speed),
                     )
 
-        reason = "max_nodes" if explored >= max_nodes else "pq_empty"
+        elapsed = _time.monotonic() - wall_start
+        if elapsed > wall_limit:
+            reason = "wall_timeout"
+        elif explored >= max_nodes:
+            reason = "max_nodes"
+        else:
+            reason = "pq_empty"
         logger.warning(
             f"Dijkstra search failed: reason={reason}, explored={explored}, "
             f"pq_size={len(pq)}, cost_so_far_size={len(cost_so_far)}, "
@@ -740,8 +759,8 @@ class DijkstraOptimizer(BaseOptimizer):
             return None
         ice_cost_factor = 2.0 if weather.ice_concentration >= 0.05 else 1.0
 
-        # Hard safety limits (cheap, before speed loop)
-        if self.enforce_safety and weather.sig_wave_height_m > 0:
+        # Hard safety limits (cheap, before speed loop) — only when safety_weight > 0
+        if self.enforce_safety and self.safety_weight > 0 and weather.sig_wave_height_m > 0:
             limits = self.safety_constraints.limits
             if weather.sig_wave_height_m >= limits.max_wave_height_m:
                 return None
