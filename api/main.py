@@ -16,21 +16,21 @@ License: Apache 2.0 - See LICENSE file
 import logging
 import os
 import shutil
-import threading
-from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
-
-from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
-from slowapi.errors import RateLimitExceeded
-import uvicorn
 
 # Import WINDMAR modules
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+import uvicorn
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi.errors import RateLimitExceeded
+from starlette.middleware.gzip import GZipMiddleware
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -410,6 +410,7 @@ def _prefetch_all_weather():
     """
     global _prefetch_running
     import time
+
     import psycopg2
 
     _prefetch_running = True
@@ -437,9 +438,9 @@ def _prefetch_all_weather():
         return
 
     try:
-        from api.weather.prefetch import do_generic_prefetch, get_layer_manager
-        from api.weather_fields import FIELD_NAMES, get_field
         from api.weather.default_coverage import DEFAULT_COVERAGE_BBOX, DEFAULT_ICE_BBOX
+        from api.weather.prefetch import do_generic_prefetch, get_layer_manager
+        from api.weather_fields import FIELD_NAMES
 
         t0 = time.monotonic()
         logger.info(
@@ -475,13 +476,17 @@ def _prefetch_all_weather():
         # the default coverage bbox.  GFS is free/fast (NOAA open data)
         # so live download at startup is fine.
         for field_name in ("wind", "visibility"):
-            work_items.append((field_name, DEFAULT_COVERAGE_BBOX, f"{field_name}:default", False))
+            work_items.append(
+                (field_name, DEFAULT_COVERAGE_BBOX, f"{field_name}:default", False)
+            )
 
         # CMEMS fields — rebuild from DB snapshot only (no live CMEMS
         # download).  Cache at the default coverage bbox so the
         # single-frame endpoint finds one cache covering the viewport.
         for field_name in ("waves", "currents", "sst"):
-            work_items.append((field_name, DEFAULT_COVERAGE_BBOX, f"{field_name}:default", True))
+            work_items.append(
+                (field_name, DEFAULT_COVERAGE_BBOX, f"{field_name}:default", True)
+            )
 
         work_items.append(("ice", DEFAULT_ICE_BBOX, "ice:default", True))
 
@@ -533,19 +538,19 @@ except ImportError:
     )
 
 # Include domain routers
-from api.routers.zones import router as zones_router
+from api.routers.charter_party import router as charter_party_router
 from api.routers.cii import router as cii_router
+from api.routers.engine_log import router as engine_log_router
 from api.routers.fueleu import router as fueleu_router
+from api.routers.optimization import router as optimization_router
 from api.routers.routes import router as routes_router
 from api.routers.system import router as system_router
-from api.routers.engine_log import router as engine_log_router
+from api.routers.tiles import router as tiles_router
 from api.routers.vessel import router as vessel_router
 from api.routers.voyage import router as voyage_router
-from api.routers.optimization import router as optimization_router
-from api.weather.router import router as weather_router
 from api.routers.voyage_history import router as voyage_history_router
-from api.routers.charter_party import router as charter_party_router
-from api.routers.tiles import router as tiles_router
+from api.routers.zones import router as zones_router
+from api.weather.router import router as weather_router
 
 app.include_router(zones_router)
 app.include_router(cii_router)

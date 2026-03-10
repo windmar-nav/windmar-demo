@@ -9,54 +9,15 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
-from starlette.responses import Response
 
 from api.demo import (
-    require_not_demo,
+    demo_mode_response,
     is_demo,
     is_demo_user,
-    demo_mode_response,
-)
-from api.state import get_app_state
-from api.weather_fields import (
-    WEATHER_FIELDS,
-    FIELD_NAMES,
-    LAYER_TO_SOURCE,
-    get_field,
-    validate_field_name,
-    FieldConfig,
-    CACHE_SCHEMA_VERSION,
-)
-from api.weather_service import (
-    get_wind_field,
-    get_wave_field,
-    get_current_field,
-    get_sst_field,
-    get_visibility_field,
-    get_ice_field,
-    get_weather_at_point,
-)
-from api.weather.grid_processor import clamp_bbox, compute_step
-from api.weather.ocean_mask import build_ice_ocean_mask
-from api.weather.frame_builder import build_frames_from_db
-from api.weather.formatters import format_single_frame, format_velocity_response
-from api.weather.prefetch import (
-    get_layer_manager,
-    do_generic_prefetch,
-    cleanup_stale_caches,
-    _get_providers,
-    _db_weather,
-    _weather_ingestion,
-    acquire_resync,
-    release_resync,
-    get_resync_status,
-    set_resync_progress,
-    get_resync_progress,
-    clear_resync_progress,
+    require_not_demo,
 )
 from api.forecast_layer_manager import (
     cache_covers_bounds,
@@ -64,7 +25,40 @@ from api.forecast_layer_manager import (
     find_covering_cache,
 )
 from api.weather.default_coverage import DEFAULT_COVERAGE_BBOX, DEFAULT_ICE_BBOX
-
+from api.weather.formatters import format_single_frame, format_velocity_response
+from api.weather.frame_builder import build_frames_from_db
+from api.weather.grid_processor import clamp_bbox, compute_step
+from api.weather.ocean_mask import build_ice_ocean_mask
+from api.weather.prefetch import (
+    _db_weather,
+    _get_providers,
+    _weather_ingestion,
+    acquire_resync,
+    cleanup_stale_caches,
+    clear_resync_progress,
+    do_generic_prefetch,
+    get_layer_manager,
+    get_resync_progress,
+    get_resync_status,
+    release_resync,
+    set_resync_progress,
+)
+from api.weather_fields import (
+    CACHE_SCHEMA_VERSION,
+    FIELD_NAMES,
+    WEATHER_FIELDS,
+    FieldConfig,
+    get_field,
+)
+from api.weather_service import (
+    get_current_field,
+    get_ice_field,
+    get_sst_field,
+    get_visibility_field,
+    get_wave_field,
+    get_weather_at_point,
+    get_wind_field,
+)
 from src.data.copernicus import GFSDataProvider
 
 logger = logging.getLogger(__name__)
@@ -168,7 +162,6 @@ def _make_ocean_mask_fn(field_name):
         def _nan_mask(grid):
             # For single-frame overlay, use global_land_mask at the subsampled coords
             # (NaN-union requires multiple frames; single frame uses coordinates)
-            from api.weather.ocean_mask import build_ice_ocean_mask as _glm
 
             try:
                 from global_land_mask import globe
@@ -212,7 +205,7 @@ async def api_weather_health():
 async def api_get_weather_point(
     lat: float = Query(..., ge=-90, le=90),
     lon: float = Query(..., ge=-180, le=180),
-    time: Optional[datetime] = None,
+    time: datetime | None = None,
 ):
     """Get weather at a specific point (wind, waves, currents)."""
     if time is None:
@@ -644,6 +637,7 @@ async def api_weather_readiness():
             if covering is not None:
                 try:
                     import json as _json
+
                     envelope = _json.loads(covering.read_text())
                 except Exception:
                     envelope = None
@@ -754,9 +748,7 @@ async def api_weather_resync_all():
                     futures[fut] = field_name
 
                 for field_name in ("waves", "currents", "sst"):
-                    fut = pool.submit(
-                        _resync_field, field_name, DEFAULT_COVERAGE_BBOX
-                    )
+                    fut = pool.submit(_resync_field, field_name, DEFAULT_COVERAGE_BBOX)
                     futures[fut] = field_name
 
                 fut = pool.submit(_resync_field, "ice", DEFAULT_ICE_BBOX)
@@ -1020,7 +1012,7 @@ async def api_get_weather_field(
     lon_min: float = Query(-50.0, ge=-180, le=180),
     lon_max: float = Query(50.0, ge=-180, le=180),
     resolution: float = Query(1.0, ge=0.25, le=5.0),
-    time: Optional[datetime] = None,
+    time: datetime | None = None,
 ):
     """Get single-frame weather field data for visualization."""
     if field not in WEATHER_FIELDS:
@@ -1173,7 +1165,7 @@ async def api_get_velocity_format(
     lon_min: float = Query(-50.0),
     lon_max: float = Query(50.0),
     resolution: float = Query(1.0),
-    time: Optional[datetime] = None,
+    time: datetime | None = None,
     forecast_hour: int = Query(0, ge=0, le=120),
 ):
     """Get vector field data in leaflet-velocity compatible format."""
@@ -1216,8 +1208,8 @@ async def api_get_velocity_format(
     cfg = get_field(field)
     step = compute_step(data.lats, data.lons, cfg.subsample_target)
 
-    from api.weather.ocean_mask import mask_velocity_with_nan
     from api.weather.grid_processor import SubsampledGrid
+    from api.weather.ocean_mask import mask_velocity_with_nan
 
     def _mask_fn(u, v):
         grid = SubsampledGrid(
@@ -1380,7 +1372,7 @@ def _resolve_cache_file(
     lat_max: float,
     lon_min: float,
     lon_max: float,
-) -> Optional[Path]:
+) -> Path | None:
     """Cascading cache lookup: exact → default_bbox → default_coverage → covering file.
 
     Returns the Path to a valid cache JSON file WITHOUT parsing it.
@@ -1463,6 +1455,7 @@ async def api_get_field_frames(
     )
     if cache_file is not None:
         from starlette.responses import Response as RawResponse
+
         from api.forecast_layer_manager import is_cache_complete
 
         # Prefer pre-compressed gzip (avoids parsing + re-serialization)
@@ -1526,10 +1519,10 @@ async def api_get_field_frames(
 )
 async def api_weather_layer_resync(
     field: str,
-    lat_min: Optional[float] = Query(None, ge=-90, le=90),
-    lat_max: Optional[float] = Query(None, ge=-90, le=90),
-    lon_min: Optional[float] = Query(None, ge=-180, le=180),
-    lon_max: Optional[float] = Query(None, ge=-180, le=180),
+    lat_min: float | None = Query(None, ge=-90, le=90),
+    lat_max: float | None = Query(None, ge=-90, le=90),
+    lon_min: float | None = Query(None, ge=-180, le=180),
+    lon_max: float | None = Query(None, ge=-180, le=180),
 ):
     """Re-ingest a single weather layer and return fresh ingested_at."""
     weather_ingestion = _weather_ingestion()
