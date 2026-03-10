@@ -94,6 +94,12 @@ async def lifespan(application: FastAPI):
     except Exception as e:
         logger.warning("Could not auto-load calibration (using theoretical): %s", e)
 
+    # Pre-compile Numba JIT kernels (avoids ~3s delay on first route optimization)
+    from src.optimization.numba_kernels import warm_up as _numba_warm_up
+
+    _numba_warm_up()
+    logger.info("Numba JIT kernels compiled")
+
     # Pre-load GSHHS coastline polygons (avoids ~136s delay on first route request)
     from src.data.land_mask import _load_gshhs
 
