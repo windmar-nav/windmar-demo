@@ -1293,9 +1293,9 @@ class RouteOptimizer(BaseOptimizer):
             return float("inf"), float("inf")
         ice_cost_factor = 2.0 if weather.ice_concentration >= 0.05 else 1.0
 
-        # Safety hard limits (wave/wind) — always enforced, cheap float checks
+        # Safety hard limits (wave/wind) — only enforced when safety_weight > 0
         safety_factor = 1.0
-        if self.enforce_safety and weather.sig_wave_height_m > 0:
+        if self.enforce_safety and self.safety_weight > 0 and weather.sig_wave_height_m > 0:
             limits = self.safety_constraints.limits
             if weather.sig_wave_height_m >= limits.max_wave_height_m:
                 return float("inf"), float("inf")
@@ -1501,14 +1501,13 @@ class RouteOptimizer(BaseOptimizer):
                     wind_speed_kts=weather.wind_speed_ms * 1.9438,
                 )
                 if safety_factor == float("inf"):
-                    continue  # Skip dangerous speeds
+                    if self.safety_weight > 0:
+                        continue  # Skip dangerous speeds
+                    else:
+                        safety_factor = 1.0  # w=0: no penalty
                 # Dampen safety penalty by safety_weight
                 if self.safety_weight > 0 and safety_factor > 1.0:
                     score *= safety_factor**self.safety_weight
-                elif self.safety_weight <= 0:
-                    pass  # no penalty
-                else:
-                    score *= safety_factor
 
             results.append((speed_kts, fuel_mt, time_hours, score))
 
