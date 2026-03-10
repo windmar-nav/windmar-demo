@@ -796,6 +796,12 @@ Live connectivity to Copernicus and NOAA weather services.
 
 Full technical documentation, safety criteria, algorithm details, and changelog available at [windmar-nav.github.io](https://windmar-nav.github.io).
 
+## Support the Project
+
+WindMar is free and open source. Sponsorships help fund ERA5 reanalysis, global coverage, automated weather refresh, and new vessel types.
+
+[:heart: Sponsor on GitHub](https://github.com/sponsors/SL-Mar)
+
 ## License
 
 Licensed under the [Apache License, Version 2.0](LICENSE).
