@@ -82,7 +82,7 @@ class TestGraphConstruction:
             if node_id.startswith("coarse"):
                 assert node.resolution_deg == 0.5
             elif node_id.startswith("fine"):
-                assert node.resolution_deg == 0.05
+                assert node.resolution_deg == 0.1
 
 
 # ---------------------------------------------------------------------------

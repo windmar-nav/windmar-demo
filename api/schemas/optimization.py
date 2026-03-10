@@ -118,7 +118,7 @@ class SafetySummary(BaseModel):
     """Safety assessment summary for optimized route."""
 
     status: Literal["safe", "marginal", "dangerous"]
-    warnings: List[str] = Field(default_factory=list, max_length=50)
+    warnings: List[str] = Field(default_factory=list, max_length=200)
     max_roll_deg: float
     max_pitch_deg: float
     max_accel_ms2: float

@@ -42,12 +42,12 @@ class RoutingGraph:
     """
     Two-tier variable-resolution routing graph.
 
-    Coarse (0.5°) over open ocean, fine (0.1°) within ~50nm of coast.
+    Coarse (0.5°) over open ocean, fine (0.1°) within ~60nm of coast.
     """
 
-    FINE_RESOLUTION = 0.05
+    FINE_RESOLUTION = 0.1  # 5×5 subdivision tiles the 0.5° coarse cell exactly
     COARSE_RESOLUTION = 0.5
-    NEARSHORE_THRESHOLD_DEG = 1.5  # ~90nm at mid-latitudes — catches narrow peninsulas
+    NEARSHORE_THRESHOLD_DEG = 1.0  # ~60nm at mid-latitudes
 
     # 16-connected grid directions (shared with RouteOptimizer)
     DIRECTIONS = [
@@ -142,16 +142,20 @@ class RoutingGraph:
             f"({row} rows, bbox [{lat_min:.1f},{lat_max:.1f},{lon_min:.1f},{lon_max:.1f}])"
         )
 
-        # Step 2: Identify nearshore cells
+        # Step 2: Identify nearshore cells (vectorized for Shapely 2.x)
         nearshore_keys = set()
         if land_geom is not None:
             try:
+                import shapely
                 from shapely.geometry import Point
 
-                for key, (lat, lon) in coarse_cells.items():
-                    pt = Point(lon, lat)
-                    dist = land_geom.distance(pt)
-                    if dist < self.NEARSHORE_THRESHOLD_DEG:
+                keys_list = list(coarse_cells.keys())
+                points = [
+                    Point(coarse_cells[k][1], coarse_cells[k][0]) for k in keys_list
+                ]
+                distances = shapely.distance(points, land_geom)
+                for i, key in enumerate(keys_list):
+                    if distances[i] < self.NEARSHORE_THRESHOLD_DEG:
                         nearshore_keys.add(key)
             except Exception as e:
                 logger.warning(

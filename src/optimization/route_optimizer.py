@@ -1182,9 +1182,11 @@ class RouteOptimizer(BaseOptimizer):
 
                 neighbor_cell = grid[neighbor_key]
 
-                # Strait edges skip is_path_clear (pre-validated)
+                # Skip is_path_clear for VR graph (ocean-validated adjacency)
+                # and strait edges (pre-validated corridors)
+                is_vr = getattr(self, "_use_vr_neighbors", False)
                 is_strait = self._is_strait_edge(current_key, neighbor_key)
-                if not is_strait:
+                if not is_vr and not is_strait:
                     clear = is_path_clear(
                         current.cell.lat,
                         current.cell.lon,
