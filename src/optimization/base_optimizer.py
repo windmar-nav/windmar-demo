@@ -19,7 +19,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Callable, Dict, List, Optional, Tuple
 
-from src.optimization import numba_kernels as nk
 from src.optimization.vessel_model import VesselModel
 from src.optimization.voyage import LegWeather
 from src.optimization.seakeeping import SafetyConstraints, SafetyStatus
@@ -32,11 +31,9 @@ logger = logging.getLogger(__name__)
 # Shared result dataclass
 # -------------------------------------------------------------------
 
-
 @dataclass
 class ParetoSolution:
     """One point on the Pareto front (fuel vs time trade-off)."""
-
     lambda_value: float
     fuel_mt: float
     time_hours: float
@@ -49,7 +46,6 @@ class ParetoSolution:
 @dataclass
 class OptimizedRoute:
     """Result of route optimization."""
-
     waypoints: List[Tuple[float, float]]  # (lat, lon) pairs
     total_fuel_mt: float
     total_time_hours: float
@@ -99,7 +95,6 @@ class OptimizedRoute:
 # -------------------------------------------------------------------
 # Abstract optimizer
 # -------------------------------------------------------------------
-
 
 class BaseOptimizer(ABC):
     """
@@ -159,9 +154,7 @@ class BaseOptimizer(ABC):
     # -------------------------------------------------------------------
 
     @staticmethod
-    def _course_change_penalty(
-        current_heading_deg: float, next_heading_deg: float
-    ) -> float:
+    def _course_change_penalty(current_heading_deg: float, next_heading_deg: float) -> float:
         """
         Piecewise-linear penalty for course changes during route optimization.
 
@@ -171,28 +164,48 @@ class BaseOptimizer(ABC):
          45-90°  → 0.02 – 0.08
          90-180° → 0.08 – 0.20
         """
-        return nk.course_change_penalty(current_heading_deg, next_heading_deg)
+        diff = abs(((next_heading_deg - current_heading_deg) + 180) % 360 - 180)
+        if diff <= 15.0:
+            return 0.0
+        if diff <= 45.0:
+            return 0.02 * (diff - 15.0) / 30.0
+        if diff <= 90.0:
+            return 0.02 + 0.06 * (diff - 45.0) / 45.0
+        return 0.08 + 0.12 * (min(diff, 180.0) - 90.0) / 90.0
 
     @staticmethod
     def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
         """Calculate great circle distance in nautical miles."""
-        return nk.haversine(lat1, lon1, lat2, lon2)
+        R = 3440.065  # Earth radius in nm
+        dlat = math.radians(lat2 - lat1)
+        dlon = math.radians(lon2 - lon1)
+        a = (math.sin(dlat / 2) ** 2
+             + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2))
+             * math.sin(dlon / 2) ** 2)
+        return R * 2 * math.asin(math.sqrt(a))
 
     @staticmethod
     def bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
         """Calculate initial bearing from point 1 to point 2 (degrees)."""
-        return nk.bearing(lat1, lon1, lat2, lon2)
+        dlon = math.radians(lon2 - lon1)
+        x = math.sin(dlon) * math.cos(math.radians(lat2))
+        y = (math.cos(math.radians(lat1)) * math.sin(math.radians(lat2))
+             - math.sin(math.radians(lat1)) * math.cos(math.radians(lat2))
+             * math.cos(dlon))
+        return (math.degrees(math.atan2(x, y)) + 360) % 360
 
     @staticmethod
-    def current_effect(
-        heading_deg: float, current_speed_ms: float, current_dir_deg: float
-    ) -> float:
+    def current_effect(heading_deg: float, current_speed_ms: float, current_dir_deg: float) -> float:
         """
         Calculate effect of current on speed over ground.
 
         Returns speed adjustment in knots (positive = favorable).
         """
-        return nk.current_effect(heading_deg, current_speed_ms, current_dir_deg)
+        if current_speed_ms <= 0:
+            return 0.0
+        current_kts = current_speed_ms * 1.94384
+        relative_angle = abs(((current_dir_deg - heading_deg) + 180) % 360 - 180)
+        return current_kts * math.cos(math.radians(relative_angle))
 
     @staticmethod
     def estimate_wave_period(weather: LegWeather) -> float:
@@ -223,12 +236,7 @@ class BaseOptimizer(ABC):
             dx, dy = b[0] - a[0], b[1] - a[1]
             if dx == 0 and dy == 0:
                 return math.sqrt((pt[0] - a[0]) ** 2 + (pt[1] - a[1]) ** 2) * 60
-            t = max(
-                0,
-                min(
-                    1, ((pt[0] - a[0]) * dx + (pt[1] - a[1]) * dy) / (dx * dx + dy * dy)
-                ),
-            )
+            t = max(0, min(1, ((pt[0] - a[0]) * dx + (pt[1] - a[1]) * dy) / (dx * dx + dy * dy)))
             px, py = a[0] + t * dx, a[1] + t * dy
             return math.sqrt((pt[0] - px) ** 2 + (pt[1] - py) ** 2) * 60
 
@@ -264,9 +272,7 @@ class BaseOptimizer(ABC):
             cur = smoothed[i]
             # Approximate distance in nm (Pythagorean on lat/lon, 60nm per degree)
             dlat = (cur[0] - prev[0]) * 60
-            dlon = (
-                (cur[1] - prev[1]) * 60 * math.cos(math.radians((prev[0] + cur[0]) / 2))
-            )
+            dlon = (cur[1] - prev[1]) * 60 * math.cos(math.radians((prev[0] + cur[0]) / 2))
             seg_nm = math.sqrt(dlat * dlat + dlon * dlon)
             if seg_nm > max_seg_nm:
                 n_sub = int(math.ceil(seg_nm / max_seg_nm))
@@ -344,30 +350,24 @@ class BaseOptimizer(ABC):
             else:
                 spd = calm_speed_kts
                 weather_dict = {
-                    "wind_speed_ms": weather.wind_speed_ms,
-                    "wind_dir_deg": weather.wind_dir_deg,
-                    "heading_deg": brg,
-                    "sig_wave_height_m": weather.sig_wave_height_m,
-                    "wave_dir_deg": weather.wave_dir_deg,
+                    'wind_speed_ms': weather.wind_speed_ms,
+                    'wind_dir_deg': weather.wind_dir_deg,
+                    'heading_deg': brg,
+                    'sig_wave_height_m': weather.sig_wave_height_m,
+                    'wave_dir_deg': weather.wave_dir_deg,
                 }
                 result = self.vessel_model.calculate_fuel_consumption(
-                    speed_kts=calm_speed_kts,
-                    is_laden=is_laden,
-                    weather=weather_dict,
-                    distance_nm=dist,
+                    speed_kts=calm_speed_kts, is_laden=is_laden,
+                    weather=weather_dict, distance_nm=dist,
                 )
-                fuel_mt = result["fuel_mt"]
-                ce = self.current_effect(
-                    brg, weather.current_speed_ms, weather.current_dir_deg
-                )
+                fuel_mt = result['fuel_mt']
+                ce = self.current_effect(brg, weather.current_speed_ms, weather.current_dir_deg)
                 sog = max(calm_speed_kts + ce, 0.1)
                 time_h = dist / sog
 
             speed_profile.append(spd)
 
-            ce = self.current_effect(
-                brg, weather.current_speed_ms, weather.current_dir_deg
-            )
+            ce = self.current_effect(brg, weather.current_speed_ms, weather.current_dir_deg)
             sog = max(spd + ce, 0.1)
 
             total_fuel += fuel_mt
@@ -394,47 +394,31 @@ class BaseOptimizer(ABC):
                         all_warnings.append(w)
                 if leg_safety.status == SafetyStatus.DANGEROUS:
                     worst = SafetyStatus.DANGEROUS
-                elif (
-                    leg_safety.status == SafetyStatus.MARGINAL
-                    and worst != SafetyStatus.DANGEROUS
-                ):
+                elif leg_safety.status == SafetyStatus.MARGINAL and worst != SafetyStatus.DANGEROUS:
                     worst = SafetyStatus.MARGINAL
 
-            leg_details.append(
-                {
-                    "from": f_wp,
-                    "to": t_wp,
-                    "distance_nm": dist,
-                    "bearing_deg": brg,
-                    "fuel_mt": fuel_mt,
-                    "time_hours": time_h,
-                    "sog_kts": sog,
-                    "stw_kts": spd,
-                    "wind_speed_ms": weather.wind_speed_ms,
-                    "wave_height_m": weather.sig_wave_height_m,
-                    "safety_status": leg_safety.status.value if leg_safety else "safe",
-                    "roll_deg": (
-                        leg_safety.motions.roll_amplitude_deg if leg_safety else 0.0
-                    ),
-                    "pitch_deg": (
-                        leg_safety.motions.pitch_amplitude_deg if leg_safety else 0.0
-                    ),
-                }
-            )
+            leg_details.append({
+                'from': f_wp,
+                'to': t_wp,
+                'distance_nm': dist,
+                'bearing_deg': brg,
+                'fuel_mt': fuel_mt,
+                'time_hours': time_h,
+                'sog_kts': sog,
+                'stw_kts': spd,
+                'wind_speed_ms': weather.wind_speed_ms,
+                'wave_height_m': weather.sig_wave_height_m,
+                'safety_status': leg_safety.status.value if leg_safety else 'safe',
+                'roll_deg': leg_safety.motions.roll_amplitude_deg if leg_safety else 0.0,
+                'pitch_deg': leg_safety.motions.pitch_amplitude_deg if leg_safety else 0.0,
+            })
             cur_time += timedelta(hours=time_h)
 
         safety_summary = {
-            "status": worst.value,
-            "warnings": all_warnings,
-            "max_roll_deg": max_roll,
-            "max_pitch_deg": max_pitch,
-            "max_accel_ms2": max_accel,
+            'status': worst.value,
+            'warnings': all_warnings,
+            'max_roll_deg': max_roll,
+            'max_pitch_deg': max_pitch,
+            'max_accel_ms2': max_accel,
         }
-        return (
-            total_fuel,
-            total_time,
-            total_dist,
-            leg_details,
-            safety_summary,
-            speed_profile,
-        )
+        return total_fuel, total_time, total_dist, leg_details, safety_summary, speed_profile
