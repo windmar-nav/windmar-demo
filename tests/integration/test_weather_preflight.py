@@ -31,14 +31,13 @@ import pytest
 API_URL = os.environ.get("WINDMAR_API_URL", "http://localhost:8003")
 TIMEOUT = 30.0
 
-# Viewport inside the union bbox of ADRS 1+2 + ADRS 4 (28-72N, -30-42E)
+# Viewport inside the default coverage bbox (25-72N, -50-45E)
 _VIEWPORT = {"lat_min": 40, "lat_max": 60, "lon_min": -10, "lon_max": 20}
 
 # All 7 registered weather fields
 _ALL_FIELDS = ("wind", "waves", "swell", "currents", "sst", "visibility", "ice")
 
-# Fields expected to have data when ADRS 1+2 + ADRS 4 are selected
-# (ice has no bbox for these areas → not_applicable)
+# Fields expected to have data in the default coverage area
 _DATA_FIELDS = ("wind", "waves", "swell", "currents", "sst", "visibility")
 
 # Minimum frames expected per field
@@ -110,81 +109,21 @@ class TestHealthAndReadiness:
         data = resp.json()
 
         # Top-level keys
-        assert "global_fields" in data
-        assert "areas" in data
+        assert "fields" in data
         assert "all_ready" in data
-        assert "selected_areas" in data
-        assert "available_areas" in data
+        assert "prefetch_running" in data
 
-        # Global fields present
-        for gf in ("wind", "visibility"):
-            assert gf in data["global_fields"]
-            f = data["global_fields"][gf]
+        # Per-field status present
+        for fname in ("wind", "waves", "currents", "sst", "ice", "visibility"):
+            assert fname in data["fields"], f"Missing {fname} in fields"
+            f = data["fields"][fname]
             assert "status" in f
             assert "frames" in f
             assert "expected" in f
 
-        # At least one area selected
-        assert len(data["selected_areas"]) >= 1
-
-    def test_readiness_areas_have_fields(self):
-        resp = _get("/api/weather/readiness")
-        data = resp.json()
-
-        for area_id, area in data["areas"].items():
-            assert "label" in area
-            assert "fields" in area
-            assert "all_ready" in area
-            for fname in ("waves", "currents", "sst", "ice"):
-                assert fname in area["fields"], (
-                    f"Missing {fname} in area {area_id}"
-                )
-                f = area["fields"][fname]
-                assert f["status"] in ("ready", "missing", "not_applicable")
-
 
 # ============================================================================
-# 2. ADRS area configuration
-# ============================================================================
-
-
-@skip_no_api
-class TestADRSAreas:
-    """Verify ADRS area endpoints return correct structure."""
-
-    def test_ocean_areas_list(self):
-        resp = _get("/api/weather/ocean-areas")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "areas" in data
-        assert "selected" in data
-        assert len(data["areas"]) >= 2
-
-        for area in data["areas"]:
-            assert "id" in area
-            assert "label" in area
-            assert "bbox" in area
-            assert len(area["bbox"]) == 4
-            assert "disabled" in area
-
-    def test_selected_areas(self):
-        resp = _get("/api/weather/selected-areas")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "selected" in data
-        assert isinstance(data["selected"], list)
-        assert len(data["selected"]) >= 1
-
-    def test_available_areas_have_adrs_ids(self):
-        resp = _get("/api/weather/ocean-areas")
-        data = resp.json()
-        ids = {a["id"] for a in data["areas"]}
-        assert "adrs_1_2" in ids
-        assert "adrs_4" in ids
-
-
-# ============================================================================
-# 3. Per-field status
+# 2. Per-field status
 # ============================================================================
 
 
@@ -213,7 +152,7 @@ class TestFieldStatus:
 
 
 # ============================================================================
-# 4. Per-field frames (the actual data payloads)
+# 3. Per-field frames (the actual data payloads)
 # ============================================================================
 
 
@@ -311,7 +250,7 @@ class TestFieldFrames:
 
 
 # ============================================================================
-# 5. Per-field debug diagnostics
+# 4. Per-field debug diagnostics
 # ============================================================================
 
 
@@ -349,7 +288,7 @@ class TestFieldDebug:
 
 
 # ============================================================================
-# 6. Cross-field alignment
+# 5. Cross-field alignment
 # ============================================================================
 
 
@@ -402,20 +341,18 @@ class TestCrossFieldAlignment:
                 f"{field}: expected 41 frames, got {len(frames)}"
             )
 
-    def test_ice_not_applicable_for_non_arctic_areas(self):
-        """Ice should be not_applicable when no Arctic area is selected."""
+    def test_ice_field_status(self):
+        """Ice field should have a valid status in readiness."""
         resp = _get("/api/weather/readiness")
         data = resp.json()
-        for area_id, area in data["areas"].items():
-            if area_id in ("adrs_1_2", "adrs_4"):
-                ice = area["fields"].get("ice", {})
-                assert ice.get("status") == "not_applicable", (
-                    f"Ice should be not_applicable for {area_id}, got {ice.get('status')}"
-                )
+        ice = data["fields"].get("ice", {})
+        assert ice.get("status") in ("ready", "missing", "not_applicable"), (
+            f"Unexpected ice status: {ice.get('status')}"
+        )
 
 
 # ============================================================================
-# 7. Freshness
+# 6. Freshness
 # ============================================================================
 
 
@@ -436,7 +373,7 @@ class TestFreshness:
 
 
 # ============================================================================
-# 8. Resync status (non-destructive check)
+# 7. Resync status (non-destructive check)
 # ============================================================================
 
 
@@ -470,9 +407,7 @@ def _run_standalone():
     checks = [
         ("Health: API", lambda: _get("/api/health").status_code == 200),
         ("Health: Weather", lambda: _get("/api/weather/health").status_code == 200),
-        ("Readiness: structure", lambda: "global_fields" in _get("/api/weather/readiness").json()),
-        ("ADRS: ocean areas", lambda: len(_get("/api/weather/ocean-areas").json()["areas"]) >= 2),
-        ("ADRS: selected areas", lambda: len(_get("/api/weather/selected-areas").json()["selected"]) >= 1),
+        ("Readiness: structure", lambda: "fields" in _get("/api/weather/readiness").json()),
     ]
 
     for field in _DATA_FIELDS:

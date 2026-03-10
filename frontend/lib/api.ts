@@ -318,30 +318,12 @@ export interface WeatherFieldStatus {
   expected: number;
 }
 
-export interface ADRSAreaInfo {
-  id: string;
-  label: string;
-  description: string;
-  bbox: [number, number, number, number];
-  ice_bbox: [number, number, number, number] | null;
-  disabled: boolean;
-}
-
-export interface AreaReadiness {
-  label: string;
-  fields: Record<string, WeatherFieldStatus>;
-  all_ready: boolean;
-}
-
 export interface WeatherReadiness {
-  global_fields: Record<string, WeatherFieldStatus>;
-  areas: Record<string, AreaReadiness>;
+  fields: Record<string, WeatherFieldStatus>;
   all_ready: boolean;
   prefetch_running: boolean;
   resync_active: string | null;
   resync_progress: Record<string, string>;
-  selected_areas: string[];
-  available_areas: ADRSAreaInfo[];
 }
 
 // Weather health/sync types
@@ -1863,22 +1845,7 @@ export const apiClient = {
     return response.data;
   },
 
-  async getSelectedAreas(): Promise<{ selected: string[] }> {
-    const response = await api.get<{ selected: string[] }>('/api/weather/selected-areas');
-    return response.data;
-  },
-
-  async setSelectedAreas(areas: string[]): Promise<{ selected: string[] }> {
-    const response = await api.post<{ selected: string[] }>('/api/weather/selected-areas', areas);
-    return response.data;
-  },
-
-  async resyncArea(areaId: string): Promise<{ status: string; area: string }> {
-    const response = await api.post(`/api/weather/resync-area?area=${encodeURIComponent(areaId)}`);
-    return response.data;
-  },
-
-  async resyncAll(): Promise<{ status: string; areas: string[] }> {
+  async resyncAll(): Promise<{ status: string }> {
     const response = await api.post('/api/weather/resync-all');
     return response.data;
   },

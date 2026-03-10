@@ -71,8 +71,7 @@ def get_resync_status() -> Optional[str]:
 def set_resync_progress(label: str, status: str):
     """Update progress for a specific field during resync.
 
-    Labels follow the pattern ``field:scope`` where scope is ``global``
-    or an ADRS area id (e.g. ``waves:adrs_1_2``).
+    Labels are field names (e.g. ``wind``, ``waves``).
     Status is one of ``downloading``, ``done``, ``failed``.
     """
     import json as _json

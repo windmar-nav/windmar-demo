@@ -439,19 +439,12 @@ def _prefetch_all_weather():
     try:
         from api.weather.prefetch import do_generic_prefetch, get_layer_manager
         from api.weather_fields import FIELD_NAMES, get_field
-        from api.weather.adrs_areas import (
-            GLOBAL_FIELDS,
-            AREA_SPECIFIC_FIELDS,
-            get_adrs_area,
-        )
-        from api.weather.area_config import get_selected_areas
+        from api.weather.default_coverage import DEFAULT_COVERAGE_BBOX, DEFAULT_ICE_BBOX
 
         t0 = time.monotonic()
-        selected_areas = get_selected_areas()
         logger.info(
-            "Weather prefetch started (DB-only): fields=%s, areas=%s",
+            "Weather prefetch started (DB-only): fields=%s",
             ", ".join(FIELD_NAMES),
-            ", ".join(selected_areas),
         )
 
         def _prefetch_item(field_name: str, bbox, label: str, db_only: bool = True):
@@ -475,38 +468,22 @@ def _prefetch_all_weather():
             except Exception as e:
                 logger.error("Weather prefetch %s failed: %s", label, e)
 
-        from api.weather.adrs_areas import compute_union_bbox, compute_union_ice_bbox
-
-        union = compute_union_bbox(selected_areas)
-        union_ice = compute_union_ice_bbox(selected_areas)
-
         # work_items: (field_name, bbox, label, db_only)
         work_items = []
 
         # GFS global fields (wind, visibility) — download from GFS at
-        # the union bbox.  GFS is free/fast (NOAA open data) so live
-        # download at startup is fine.  Using union bbox instead of the
-        # global default_bbox keeps the download small.
-        gfs_bbox = union or (-85.0, 85.0, -179.75, 179.75)
-        for field_name in GLOBAL_FIELDS:
-            work_items.append((field_name, gfs_bbox, f"{field_name}:default", False))
+        # the default coverage bbox.  GFS is free/fast (NOAA open data)
+        # so live download at startup is fine.
+        for field_name in ("wind", "visibility"):
+            work_items.append((field_name, DEFAULT_COVERAGE_BBOX, f"{field_name}:default", False))
 
         # CMEMS fields — rebuild from DB snapshot only (no live CMEMS
-        # download).  Cache at the union bbox so the single-frame
-        # endpoint finds one cache covering the entire viewport.
-        for field_name in FIELD_NAMES:
-            if field_name not in AREA_SPECIFIC_FIELDS:
-                continue
-            if field_name == "swell":
-                continue  # shares wave cache
-            if field_name == "ice":
-                if union_ice is not None:
-                    work_items.append(
-                        (field_name, union_ice, f"{field_name}:union", True)
-                    )
-                continue
-            if union is not None:
-                work_items.append((field_name, union, f"{field_name}:union", True))
+        # download).  Cache at the default coverage bbox so the
+        # single-frame endpoint finds one cache covering the viewport.
+        for field_name in ("waves", "currents", "sst"):
+            work_items.append((field_name, DEFAULT_COVERAGE_BBOX, f"{field_name}:default", True))
+
+        work_items.append(("ice", DEFAULT_ICE_BBOX, "ice:default", True))
 
         # max_workers=1 keeps peak memory under the 2GB container limit
         # (wave cache alone can use ~1.5GB when decompressing 328 grids).

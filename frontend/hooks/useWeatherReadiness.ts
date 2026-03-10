@@ -1,30 +1,24 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { apiClient, WeatherReadiness, WeatherFieldStatus, AreaReadiness, ADRSAreaInfo } from '@/lib/api';
+import { apiClient, WeatherReadiness, WeatherFieldStatus } from '@/lib/api';
 
 const POLL_INTERVAL_MS = 3000;
 
 interface UseWeatherReadinessResult {
-  globalFields: Record<string, WeatherFieldStatus>;
-  areas: Record<string, AreaReadiness>;
+  fields: Record<string, WeatherFieldStatus>;
   allReady: boolean;
   prefetchRunning: boolean;
   resyncActive: string | null;
   resyncProgress: Record<string, string>;
-  selectedAreas: string[];
-  availableAreas: ADRSAreaInfo[];
   isChecking: boolean;
   restartPolling: () => void;
 }
 
 export function useWeatherReadiness(): UseWeatherReadinessResult {
-  const [globalFields, setGlobalFields] = useState<Record<string, WeatherFieldStatus>>({});
-  const [areas, setAreas] = useState<Record<string, AreaReadiness>>({});
+  const [fields, setFields] = useState<Record<string, WeatherFieldStatus>>({});
   const [allReady, setAllReady] = useState(false);
   const [prefetchRunning, setPrefetchRunning] = useState(true);
   const [resyncActive, setResyncActive] = useState<string | null>(null);
   const [resyncProgress, setResyncProgress] = useState<Record<string, string>>({});
-  const [selectedAreas, setSelectedAreas] = useState<string[]>([]);
-  const [availableAreas, setAvailableAreas] = useState<ADRSAreaInfo[]>([]);
   const [isChecking, setIsChecking] = useState(true);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const stoppedRef = useRef(false);
@@ -32,14 +26,11 @@ export function useWeatherReadiness(): UseWeatherReadinessResult {
   const poll = useCallback(async () => {
     try {
       const data: WeatherReadiness = await apiClient.getWeatherReadiness();
-      setGlobalFields(data.global_fields);
-      setAreas(data.areas);
+      setFields(data.fields);
       setAllReady(data.all_ready);
       setPrefetchRunning(data.prefetch_running);
       setResyncActive(data.resync_active);
       setResyncProgress(data.resync_progress ?? {});
-      setSelectedAreas(data.selected_areas);
-      setAvailableAreas(data.available_areas);
       setIsChecking(false);
 
       // Stop polling once prefetch is done and no resync active
@@ -78,5 +69,5 @@ export function useWeatherReadiness(): UseWeatherReadinessResult {
     };
   }, [poll]);
 
-  return { globalFields, areas, allReady, prefetchRunning, resyncActive, resyncProgress, selectedAreas, availableAreas, isChecking, restartPolling };
+  return { fields, allReady, prefetchRunning, resyncActive, resyncProgress, isChecking, restartPolling };
 }

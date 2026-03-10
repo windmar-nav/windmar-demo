@@ -86,8 +86,8 @@ const Tooltip = dynamic(
 
 const DEFAULT_CENTER: [number, number] = [48, 5];
 const DEFAULT_ZOOM = 4;
-/** Default fallback: ADRS 1+2 (NW Europe) — the default selected area. */
-const DEFAULT_BOUNDS: [[number, number], [number, number]] = [[25, -50], [72, 30]];
+/** Default coverage: NE Atlantic + Europe + Mediterranean. */
+const DEFAULT_BOUNDS: [[number, number], [number, number]] = [[25, -50], [72, 45]];
 
 export type WeatherLayer = 'wind' | 'waves' | 'currents' | 'ice' | 'visibility' | 'sst' | 'swell' | 'none';
 
@@ -191,8 +191,8 @@ export default function MapComponent({
         minZoom={DEMO_MODE ? 4 : 3}
         zoomSnap={0.25}
         zoomDelta={0.5}
-        maxBounds={bounds}
-        maxBoundsViscosity={1.0}
+        maxBounds={DEMO_MODE ? bounds : undefined}
+        maxBoundsViscosity={DEMO_MODE ? 1.0 : 0}
         worldCopyJump={!DEMO_MODE}
         style={{ height: '100%', width: '100%' }}
         className="rounded-lg"
@@ -214,7 +214,7 @@ export default function MapComponent({
                [restoredViewport.bounds.lat_max, restoredViewport.bounds.lon_max]]
             : bounds}
         />
-        <MaxBoundsUpdater bounds={bounds} />
+        {DEMO_MODE && <MaxBoundsUpdater bounds={bounds} />}
 
         {/* Fit bounds handler */}
         <FitBoundsHandler bounds={fitBoundsProp} fitKey={fitKey} />

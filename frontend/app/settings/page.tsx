@@ -1,11 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
 import Header from '@/components/Header';
 import { useVoyage } from '@/components/VoyageContext';
-import { useWeatherReadiness } from '@/hooks/useWeatherReadiness';
-import { apiClient, ADRSAreaInfo } from '@/lib/api';
-import { Settings, Grid3X3, TrendingUp, Compass, Gauge, Zap, Globe, CheckCircle2, Minus } from 'lucide-react';
+import { Settings, Grid3X3, TrendingUp, Compass, Gauge, Zap } from 'lucide-react';
 
 export default function SettingsPage() {
   const {
@@ -13,20 +10,7 @@ export default function SettingsPage() {
     variableResolution, setVariableResolution,
     paretoEnabled, setParetoEnabled,
     variableSpeed, setVariableSpeed,
-    selectedAreas, setSelectedAreas,
   } = useVoyage();
-
-  const readiness = useWeatherReadiness();
-
-  const handleToggleArea = useCallback((areaId: string) => {
-    const next = selectedAreas.includes(areaId)
-      ? selectedAreas.filter(a => a !== areaId)
-      : [...selectedAreas, areaId];
-    if (next.length === 0) return; // keep at least one
-    setSelectedAreas(next);
-    // Persist to backend
-    apiClient.setSelectedAreas(next).catch(() => {});
-  }, [selectedAreas, setSelectedAreas]);
 
   return (
     <div className="min-h-screen bg-maritime-darker text-white">
@@ -101,70 +85,6 @@ export default function SettingsPage() {
                 islands matters) and a coarser 0.5&deg; grid in the open ocean (where small
                 deviations have minimal impact). This significantly improves coastal routing
                 accuracy without the computational cost of a uniformly fine grid.
-              </p>
-            </div>
-          </section>
-
-          {/* ── Ocean Area ── */}
-          <section className="bg-white/5 rounded-lg p-8">
-            <div className="flex items-center space-x-2 mb-4">
-              <Globe className="w-5 h-5 text-primary-400" />
-              <h2 className="text-xl font-semibold">Sailing Areas</h2>
-            </div>
-
-            <div className="space-y-2 mb-4">
-              <label className="block text-sm text-gray-300 mb-2">Select coverage areas for weather data</label>
-              {readiness.availableAreas.map((area: ADRSAreaInfo) => {
-                const isSelected = selectedAreas.includes(area.id);
-                const areaData = readiness.areas[area.id];
-                return (
-                  <label
-                    key={area.id}
-                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                      area.disabled
-                        ? 'border-white/5 opacity-50 cursor-not-allowed'
-                        : isSelected
-                        ? 'border-blue-500/40 bg-blue-500/10'
-                        : 'border-white/10 hover:border-white/20'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      disabled={area.disabled}
-                      onChange={() => !area.disabled && handleToggleArea(area.id)}
-                      className="accent-ocean-500 w-4 h-4"
-                    />
-                    <div className="flex-1">
-                      <div className="text-sm text-gray-300">
-                        {area.label}
-                        {area.disabled && <span className="text-gray-500 ml-2 text-xs">Coming soon</span>}
-                      </div>
-                      <div className="text-xs text-gray-500">{area.description}</div>
-                    </div>
-                    {areaData && !area.disabled && (
-                      <div className="flex items-center gap-1">
-                        {areaData.all_ready ? (
-                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                        ) : (
-                          <Minus className="w-4 h-4 text-amber-500" />
-                        )}
-                      </div>
-                    )}
-                  </label>
-                );
-              })}
-            </div>
-
-            <div className="text-sm text-gray-400 leading-relaxed space-y-2">
-              <p>
-                Select one or more ADRS areas for CMEMS weather coverage (waves,
-                currents, SST, ice). Wind and visibility use global GFS data and are
-                not affected. Multiple areas can be selected for adjacent coverage.
-              </p>
-              <p>
-                After adding a new area, use the startup area selector or the weather
-                panel to download data for the new region.
               </p>
             </div>
           </section>

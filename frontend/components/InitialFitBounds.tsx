@@ -19,7 +19,7 @@ export default function InitialFitBounds({ bounds }: { bounds: LatLngBoundsExpre
   return null;
 }
 
-/** Sync maxBounds when coverage changes (e.g. ADRS area selection). */
+/** Sync maxBounds when coverage bounds change. */
 export function MaxBoundsUpdater({ bounds }: { bounds: LatLngBoundsExpression }) {
   const map = useMap();
 

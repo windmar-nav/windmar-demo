@@ -40,17 +40,8 @@ export default function HomePage() {
   // Weather readiness (startup screen)
   const readiness = useWeatherReadiness();
 
-  // Derive coverage bounds from selected ADRS areas
-  const coverageBounds = useMemo<[[number, number], [number, number]] | null>(() => {
-    const { availableAreas, selectedAreas } = readiness;
-    if (!availableAreas.length || !selectedAreas.length) return null;
-    const selected = availableAreas.filter(a => selectedAreas.includes(a.id));
-    if (!selected.length) return null;
-    return [
-      [Math.min(...selected.map(a => a.bbox[0])), Math.min(...selected.map(a => a.bbox[2]))],
-      [Math.max(...selected.map(a => a.bbox[1])), Math.max(...selected.map(a => a.bbox[3]))],
-    ];
-  }, [readiness.availableAreas, readiness.selectedAreas]);
+  // Default coverage bounds: NE Atlantic + Europe + Mediterranean
+  const coverageBounds: [[number, number], [number, number]] = [[25, -50], [72, 45]];
 
   // Ephemeral state (local to this page)
   const [isEditing, setIsEditing] = useState(true);
@@ -419,33 +410,6 @@ export default function HomePage() {
   const [areaSelectDismissed, setAreaSelectDismissed] = useState(false);
   const showStartupLoader = !areaSelectDismissed;
 
-  const handleSelectAreas = useCallback(async (areas: string[]) => {
-    try {
-      await apiClient.setSelectedAreas(areas);
-    } catch (error) {
-      console.error('Failed to set selected areas:', error);
-    }
-  }, []);
-
-  const handleResyncArea = useCallback(async (areaId: string) => {
-    try {
-      await apiClient.resyncArea(areaId);
-      // Resync started in background — restart polling to track progress
-      readiness.restartPolling();
-    } catch (error: unknown) {
-      // 409 = resync already running, not a real error
-      if (error && typeof error === 'object' && 'response' in error) {
-        const axiosErr = error as { response?: { status?: number } };
-        if (axiosErr.response?.status === 409) {
-          readiness.restartPolling();
-          return;
-        }
-      }
-      console.error('Failed to resync area:', error);
-      toast.error('Resync failed', `Could not download data for area ${areaId}`);
-    }
-  }, [toast, readiness]);
-
   const handleResyncAll = useCallback(async () => {
     try {
       await apiClient.resyncAll();
@@ -469,17 +433,12 @@ export default function HomePage() {
       <DebugConsole />
       {showStartupLoader && (
         <StartupLoader
-          globalFields={readiness.globalFields}
-          areas={readiness.areas}
+          fields={readiness.fields}
           allReady={readiness.allReady}
           prefetchRunning={readiness.prefetchRunning}
           resyncActive={readiness.resyncActive}
           resyncProgress={readiness.resyncProgress}
-          selectedAreas={readiness.selectedAreas}
-          availableAreas={readiness.availableAreas}
           isChecking={readiness.isChecking}
-          onSelectAreas={handleSelectAreas}
-          onResyncArea={handleResyncArea}
           onResyncAll={handleResyncAll}
           onMissingFields={(count) =>
             toast.warning(
