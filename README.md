@@ -2,7 +2,7 @@
 
 > **Note**: This is the open-source reference release (v0.1.5). It is a fully functional self-hosted tool — not a SaaS product. You bring your own weather credentials, your own noon reports, and run it locally or on your own server. Do not use for actual voyage planning or navigation.
 
-A weather routing and performance analytics platform for merchant ships. Optimizes fuel consumption through weather-aware A\* and Dijkstra routing, physics-based vessel modeling, engine log analytics, and real-time sensor fusion. Ships with a default MR Product Tanker configuration; all vessel parameters are fully configurable.
+A weather routing and performance analytics platform for merchant ships. Optimizes fuel consumption through weather-aware A\* and Dijkstra routing, physics-based vessel modeling, and engine log analytics. Ships with a default MR Product Tanker configuration; all vessel parameters are fully configurable.
 
 **Documentation**: [windmar-nav.github.io](https://windmar-nav.github.io)
 
@@ -155,11 +155,11 @@ docker compose -f docker-compose.standalone.yml down -v
 - Custom zone creation with penalty/exclusion/mandatory interactions
 - GeoJSON export for frontend visualization
 
-### Live Operations
-- SBG Electronics IMU sensor integration (roll, pitch, heave)
+### Live Operations (requires SBG Ellipse N hardware)
+- SBG Electronics IMU sensor integration (roll, pitch, heave) — built-in simulator available for testing without hardware
 - FFT-based wave spectrum estimation from ship motion
-- Multi-source sensor fusion engine
-- Continuous model recalibration from live data
+- Multi-source sensor fusion engine with measured-vs-forecast comparison
+- Calibration signal output (wave height and period deltas) for manual model tuning
 
 ### Web Interface
 - ECDIS-style map-centric layout with full-width chart and header dropdowns
@@ -521,9 +521,9 @@ Column names are auto-detected — `lat`/`latitude`, `lon`/`longitude`, `speed`/
 - `POST /api/cii/project` - Multi-year CII projection
 - `POST /api/cii/reduction` - Required fuel reduction for target rating
 
-### Live Sensor Data
+### Live Sensor Data (requires SBG hardware or simulator)
 - `GET /api/live/status` - Sensor connection status
-- `POST /api/live/connect` - Connect to SBG IMU sensor
+- `POST /api/live/connect` - Connect to SBG IMU sensor or simulator
 - `POST /api/live/disconnect` - Disconnect sensor
 - `GET /api/live/data` - Current fused sensor data
 - `GET /api/live/timeseries/{channel}` - Time series for a specific channel
@@ -780,7 +780,7 @@ Live connectivity to Copernicus and NOAA weather services.
 
 - **CMEMS wave and current data** — Copernicus Marine Service API integration with swell/wind-wave decomposition for accurate seakeeping
 - **GFS 5-day wind forecast timeline** — f000-f120 (3-hourly steps) with Windy-style particle animation on the map
-- **ERA5 wind fallback** — Climate Data Store reanalysis as secondary wind source (~5-day lag)
+- **ERA5 wind fallback** — Climate Data Store reanalysis as secondary wind source (~5-day lag). *Note: ERA5 ingestion is not active in v0.1.5; see Limitations.*
 - **Data sources documentation** — credential setup guide, provider chain documentation
 
 ## Codebase
