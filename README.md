@@ -49,6 +49,12 @@ Run Windmar on your machine in under 2 minutes. No `git clone`, no build step, n
 
 The system ships with demo engine log data and noon reports pre-loaded. Wind data (GFS) loads automatically on first start — no credentials needed.
 
+### Performance & Limitations
+
+- **Weather download**: First startup fetches 5 days of GFS wind forecasts from NOAA. On a modern CPU this takes 2-3 minutes; on an entry-level CPU (Intel i3) expect ~15 minutes.
+- **Route optimization**: Windmar computes 6 route variants (A\* + Dijkstra, 3 safety weights each). On an i5/i7 this completes in 1-2 minutes; on an i3 expect ~8 minutes for a 5-day voyage.
+- **Forecast horizon**: Routes are limited to **5 days** — this is the GFS forecast window (f000-f120, 3-hourly steps). For longer voyages, weather beyond day 5 falls back to climatological averages.
+
 ### Upload Your Own Data
 
 Download the noon report Excel template and fill in your operational data:
