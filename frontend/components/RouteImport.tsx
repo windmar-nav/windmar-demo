@@ -203,8 +203,23 @@ export function SampleRTZButton() {
     <waypoint name="Gibraltar">
       <position lat="36.1408" lon="-5.3536" />
     </waypoint>
-    <waypoint name="Sardinia South">
+    <waypoint name="Alboran Sea">
+      <position lat="36.4000" lon="-2.5000" />
+    </waypoint>
+    <waypoint name="Off Cabo de Gata">
+      <position lat="36.7000" lon="-1.5000" />
+    </waypoint>
+    <waypoint name="South of Balearics">
+      <position lat="37.5000" lon="1.5000" />
+    </waypoint>
+    <waypoint name="W Sardinia Channel">
+      <position lat="38.0000" lon="5.5000" />
+    </waypoint>
+    <waypoint name="Sardinia Channel">
       <position lat="38.0000" lon="8.8000" />
+    </waypoint>
+    <waypoint name="Strait of Sicily">
+      <position lat="37.3000" lon="11.5000" />
     </waypoint>
     <waypoint name="Augusta">
       <position lat="37.2333" lon="15.2167" />

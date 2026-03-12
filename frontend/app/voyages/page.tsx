@@ -105,7 +105,12 @@ const SAMPLE_WAYPOINTS: Position[] = [
   { lat: 42.8800, lon: -9.8900, name: 'Finisterre' },
   { lat: 37.0000, lon: -9.1000, name: 'Cape St Vincent' },
   { lat: 36.1408, lon: -5.3536, name: 'Gibraltar' },
-  { lat: 38.0000, lon: 8.8000, name: 'Sardinia South' },
+  { lat: 36.4000, lon: -2.5000, name: 'Alboran Sea' },
+  { lat: 36.7000, lon: -1.5000, name: 'Off Cabo de Gata' },
+  { lat: 37.5000, lon: 1.5000, name: 'South of Balearics' },
+  { lat: 38.0000, lon: 5.5000, name: 'W Sardinia Channel' },
+  { lat: 38.0000, lon: 8.8000, name: 'Sardinia Channel' },
+  { lat: 37.3000, lon: 11.5000, name: 'Strait of Sicily' },
   { lat: 37.2333, lon: 15.2167, name: 'Augusta' },
 ];
 
