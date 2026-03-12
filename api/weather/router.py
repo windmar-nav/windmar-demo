@@ -739,6 +739,9 @@ async def api_weather_resync_all():
                     set_resync_progress(field_name, "failed")
                     raise
 
+            from api.config import settings
+            has_cmems = settings.has_cmems_credentials
+
             with ThreadPoolExecutor(max_workers=4) as pool:
                 futures = {}
 
@@ -747,12 +750,17 @@ async def api_weather_resync_all():
                     fut = pool.submit(_resync_field, field_name, cfg.default_bbox)
                     futures[fut] = field_name
 
-                for field_name in ("waves", "currents", "sst"):
-                    fut = pool.submit(_resync_field, field_name, DEFAULT_COVERAGE_BBOX)
-                    futures[fut] = field_name
+                if has_cmems:
+                    for field_name in ("waves", "currents", "sst"):
+                        fut = pool.submit(_resync_field, field_name, DEFAULT_COVERAGE_BBOX)
+                        futures[fut] = field_name
 
-                fut = pool.submit(_resync_field, "ice", DEFAULT_ICE_BBOX)
-                futures[fut] = "ice"
+                    fut = pool.submit(_resync_field, "ice", DEFAULT_ICE_BBOX)
+                    futures[fut] = "ice"
+                else:
+                    for field_name in ("waves", "currents", "sst", "ice"):
+                        set_resync_progress(field_name, "done")
+                    logger.info("Resync-all: skipping CMEMS fields (no credentials)")
 
                 for future in as_completed(futures):
                     label = futures[future]
