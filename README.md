@@ -54,6 +54,7 @@ The system ships with demo engine log data and noon reports pre-loaded. Wind dat
 - **Weather download**: First startup fetches 5 days of GFS wind forecasts from NOAA. On a modern CPU this takes 2-3 minutes; on an entry-level CPU (Intel i3) expect ~15 minutes.
 - **Route optimization**: Windmar computes 6 route variants (A\* + Dijkstra, 3 safety weights each). On an i5/i7 this completes in 1-2 minutes; on an i3 expect ~8 minutes for a 5-day voyage.
 - **Forecast horizon**: Routes are limited to **5 days** — this is the GFS forecast window (f000-f120, 3-hourly steps). For longer voyages, weather beyond day 5 falls back to climatological averages.
+- **Accuracy disclaimer**: The vessel performance model ships with default MR tanker parameters that have **not been calibrated against sea trial data**. Routing algorithms have not been benchmarked against commercial weather routing solutions. Results are indicative only — do not use for actual voyage planning. The purpose of this release is educational. Development is ongoing with a sea validation campaign planned.
 
 ### Upload Your Own Data
 
