@@ -12,8 +12,18 @@ Run Windmar on your machine in under 2 minutes. No `git clone`, no build step, n
 
 ### Prerequisites
 
-- **Windows / Mac**: [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-- **Linux**: [Docker Engine](https://docs.docker.com/engine/install/) (includes the Compose plugin). Follow the instructions for your distro — the `docker compose` command must work.
+- **Windows / Mac**: Install [Docker Desktop](https://www.docker.com/products/docker-desktop/).
+
+- **Linux (Ubuntu / Mint / Debian)**: Install Docker Engine from the [official Docker repository](https://docs.docker.com/engine/install/ubuntu/). Do **not** use `sudo apt install docker.io` — that package does not include Docker Compose.
+
+  After installation, start the daemon and add your user to the `docker` group:
+  ```bash
+  sudo systemctl start docker && sudo systemctl enable docker
+  sudo usermod -aG docker $USER
+  ```
+  Then **log out and back in** for the group change to take effect.
+
+  Verify with: `docker compose version` (should print v2.x).
 
 ### Steps
 
@@ -75,7 +85,9 @@ Without CMEMS credentials everything still works — wave and current overlays w
 
 | Issue | Solution |
 |-------|----------|
-| `docker compose` not recognized | Install Docker from the [official repo](https://docs.docker.com/engine/install/) — the default `docker.io` package doesn't include Compose |
+| `docker compose` not recognized | You need Docker from the [official repo](https://docs.docker.com/engine/install/ubuntu/). The `docker.io` apt package does not include Compose. |
+| `Cannot connect to the Docker daemon` | Start the daemon: `sudo systemctl start docker && sudo systemctl enable docker` |
+| `permission denied` on docker commands | Add your user to the docker group: `sudo usermod -aG docker $USER`, then log out and back in |
 | Port 3000 or 8000 in use | Change ports in `.env`: add `API_PORT=8001` and update `CORS_ORIGINS` |
 | API not ready yet | First startup takes ~60s (database migrations + weather download). Check `docker logs windmar-api` |
 | No wave/current data | Expected without CMEMS credentials. Wind visualization works without any credentials |
