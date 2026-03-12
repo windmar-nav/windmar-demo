@@ -13,7 +13,8 @@ const SAMPLE_ROUTE: { name: string; waypoints: Position[] } = {
     { lat: 48.4500, lon: -5.1000, name: 'Ushant' },
     { lat: 42.8800, lon: -9.2700, name: 'Finisterre' },
     { lat: 36.1408, lon: -5.3536, name: 'Gibraltar' },
-    { lat: 38.8000, lon: 8.4000, name: 'Sardinia South' },
+    { lat: 36.2000, lon: -3.0000, name: 'Alboran Sea' },
+    { lat: 38.0000, lon: 8.8000, name: 'Sardinia South' },
     { lat: 37.2333, lon: 15.2167, name: 'Augusta' },
   ],
 };

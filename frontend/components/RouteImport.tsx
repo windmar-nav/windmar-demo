@@ -200,8 +200,11 @@ export function SampleRTZButton() {
     <waypoint name="Gibraltar">
       <position lat="36.1408" lon="-5.3536" />
     </waypoint>
+    <waypoint name="Alboran Sea">
+      <position lat="36.2000" lon="-3.0000" />
+    </waypoint>
     <waypoint name="Sardinia South">
-      <position lat="38.8000" lon="8.4000" />
+      <position lat="38.0000" lon="8.8000" />
     </waypoint>
     <waypoint name="Augusta">
       <position lat="37.2333" lon="15.2167" />
