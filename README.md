@@ -12,15 +12,16 @@ Run Windmar on your machine in under 2 minutes. No `git clone`, no build step, n
 
 ### Prerequisites
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows, Mac, or Linux)
+- **Windows / Mac**: [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+- **Linux**: [Docker Engine](https://docs.docker.com/engine/install/) (includes the Compose plugin). Follow the instructions for your distro — the `docker compose` command must work.
 
 ### Steps
 
 1. Download two files into the same folder:
    ```bash
    mkdir windmar && cd windmar
-   curl -LO https://raw.githubusercontent.com/windmar-nav/windmar/main/docker-compose.standalone.yml
-   curl -L -o .env https://raw.githubusercontent.com/windmar-nav/windmar/main/.env.standalone
+   curl -LO https://raw.githubusercontent.com/windmar-nav/windmar-demo/main/docker-compose.standalone.yml
+   curl -L -o .env https://raw.githubusercontent.com/windmar-nav/windmar-demo/main/.env.standalone
    ```
 
 2. Start everything:
@@ -74,6 +75,7 @@ Without CMEMS credentials everything still works — wave and current overlays w
 
 | Issue | Solution |
 |-------|----------|
+| `docker compose` not recognized | Install Docker from the [official repo](https://docs.docker.com/engine/install/) — the default `docker.io` package doesn't include Compose |
 | Port 3000 or 8000 in use | Change ports in `.env`: add `API_PORT=8001` and update `CORS_ORIGINS` |
 | API not ready yet | First startup takes ~60s (database migrations + weather download). Check `docker logs windmar-api` |
 | No wave/current data | Expected without CMEMS credentials. Wind visualization works without any credentials |
@@ -323,8 +325,8 @@ windmar/
 ### Docker Compose (recommended)
 
 ```bash
-git clone https://github.com/windmar-nav/windmar.git
-cd windmar
+git clone https://github.com/windmar-nav/windmar-demo.git
+cd windmar-demo
 cp .env.example .env    # Edit with your settings
 docker compose up -d --build
 ```
