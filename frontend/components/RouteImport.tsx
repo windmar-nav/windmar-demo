@@ -195,13 +195,13 @@ export function SampleRTZButton() {
       <position lat="48.4500" lon="-5.1000" />
     </waypoint>
     <waypoint name="Finisterre">
-      <position lat="42.8800" lon="-9.2700" />
+      <position lat="42.8800" lon="-9.8900" />
+    </waypoint>
+    <waypoint name="Cape St Vincent">
+      <position lat="37.0000" lon="-9.1000" />
     </waypoint>
     <waypoint name="Gibraltar">
       <position lat="36.1408" lon="-5.3536" />
-    </waypoint>
-    <waypoint name="Alboran Sea">
-      <position lat="36.2000" lon="-3.0000" />
     </waypoint>
     <waypoint name="Sardinia South">
       <position lat="38.0000" lon="8.8000" />

@@ -543,9 +543,9 @@ const SAMPLE_WAYPOINTS: Position[] = [
   { lat: 51.9225, lon: 4.4792, name: 'Rotterdam' },
   { lat: 51.0500, lon: 1.5000, name: 'Dover Strait' },
   { lat: 48.4500, lon: -5.1000, name: 'Ushant' },
-  { lat: 42.8800, lon: -9.2700, name: 'Finisterre' },
+  { lat: 42.8800, lon: -9.8900, name: 'Finisterre' },
+  { lat: 37.0000, lon: -9.1000, name: 'Cape St Vincent' },
   { lat: 36.1408, lon: -5.3536, name: 'Gibraltar' },
-  { lat: 36.2000, lon: -3.0000, name: 'Alboran Sea' },
   { lat: 38.0000, lon: 8.8000, name: 'Sardinia South' },
   { lat: 37.2333, lon: 15.2167, name: 'Augusta' },
 ];
